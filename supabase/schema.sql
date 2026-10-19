@@ -289,7 +289,7 @@ insert into public.settings (id, data) values (1, '{
 
 insert into public.categories (id, name, image, sort) values
   ('manos', 'Manos', 'images/kapping.webp', 0),
-  ('esculpidas', 'Extensión', 'images/esculpidas-semi.webp', 1),
+  ('esculpidas', 'Extensiones', 'images/esculpidas-semi.webp', 1),
   ('pies', 'Pies', 'images/pedicura-tradicional.webp', 2),
   ('pestanas', 'Pestañas', 'images/ext-clasicas.webp', 3),
   ('peluqueria', 'Peluquería', 'images/peluqueria.webp', 4)
@@ -299,7 +299,7 @@ insert into public.services (id, category_id, name, price, duration, image, desc
   ('mani-trad', 'manos', 'Manicura tradicional', 35000, 30, 'images/manicura-tradicional.webp', null, 0),
   ('mani-semi', 'manos', 'Manicura semipermanente', 70000, 50, null, 'Sobre el largor de tus uñas naturales. Retoque cada 21 días.', 1),
   ('rubber', 'manos', 'Base rubber + semipermanente', 110000, 60, null, null, 2),
-  ('kapping', 'manos', 'Kapping + semipermanente', 130000, 105, 'images/kapping.webp', 'Acrílico o polygel, hasta largor 2. Diseños: cotizá por WhatsApp. Retoque cada 21 días.', 3),
+  ('kapping', 'manos', 'Kapping + semipermanente', 130000, 105, 'images/kapping.webp', 'Refuerzo sobre tu uña natural, sin agregar largo. Gel, acrílico o polygel. Diseños: cotizá por WhatsApp. Retoque cada 21 días.', 3),
   ('extraccion', 'manos', 'Extracción', 60000, 45, 'images/extraccion.webp', 'Acrílico, polygel o gel. Incluye manicura tradicional.', 4),
   ('esc-nude', 'esculpidas', 'Esculpidas acrílicas nude', 130000, 60, 'images/esculpidas-nude.webp', 'Hasta largor 2. Retoque cada 21 días.', 5),
   ('softgel', 'esculpidas', 'Softgel', 130000, 90, 'images/softgel.webp', 'Incluye semipermanente. Diseños: cotizá por WhatsApp. Retoque cada 21 días.', 6),

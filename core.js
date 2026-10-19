@@ -81,7 +81,7 @@ const SEED = {
   },
   categories: [
     { id: "manos", name: "Manos", image: "images/kapping.webp", sort: 0 },
-    { id: "esculpidas", name: "Extensión", image: "images/esculpidas-semi.webp", sort: 1 },
+    { id: "esculpidas", name: "Extensiones", image: "images/esculpidas-semi.webp", sort: 1 },
     { id: "pies", name: "Pies", image: "images/pedicura-tradicional.webp", sort: 2 },
     { id: "pestanas", name: "Pestañas", image: "images/ext-clasicas.webp", sort: 3 },
     { id: "peluqueria", name: "Peluquería", image: "images/peluqueria.webp", sort: 4 },
@@ -91,7 +91,7 @@ const SEED = {
     ["mani-trad", "manos", "Manicura tradicional", 35000, 30, "manicura-tradicional"],
     ["mani-semi", "manos", "Manicura semipermanente", 70000, 50, null, "Sobre el largor de tus uñas naturales. Retoque cada 21 días."],
     ["rubber", "manos", "Base rubber + semipermanente", 110000, 60, null],
-    ["kapping", "manos", "Kapping + semipermanente", 130000, 105, "kapping", "Acrílico o polygel, hasta largor 2. Diseños: cotizá por WhatsApp. Retoque cada 21 días."],
+    ["kapping", "manos", "Kapping + semipermanente", 130000, 105, "kapping", "Refuerzo sobre tu uña natural, sin agregar largo. Gel, acrílico o polygel. Diseños: cotizá por WhatsApp. Retoque cada 21 días."],
     ["extraccion", "manos", "Extracción", 60000, 45, "extraccion", "Acrílico, polygel o gel. Incluye manicura tradicional."],
     ["esc-nude", "esculpidas", "Esculpidas acrílicas nude", 130000, 60, "esculpidas-nude", "Hasta largor 2. Retoque cada 21 días."],
     ["softgel", "esculpidas", "Softgel", 130000, 90, "softgel", "Incluye semipermanente. Diseños: cotizá por WhatsApp. Retoque cada 21 días."],

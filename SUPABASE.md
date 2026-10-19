@@ -31,17 +31,17 @@ Solo los usuarios que están en `admins` pueden entrar al panel. Para sumar a ot
 
 ## 4. Conectar la web
 
-1. **Project Settings** → **API**. Copiá **Project URL** y la clave **anon public**.
+1. **Project Settings** → **API Keys**. Copiá la **Publishable key** (empieza con `sb_publishable_`). La URL del proyecto es `https://ID-DEL-PROYECTO.supabase.co`.
 2. Pegalas en `config.js`:
 
    ```js
    window.BLOSSOM_CONFIG = {
      supabaseUrl: "https://xxxxxxxx.supabase.co",
-     supabaseAnonKey: "eyJhbGciOi...",
+     supabaseAnonKey: "sb_publishable_...",
    };
    ```
 
-La clave *anon* está pensada para ir en la web: lo que permite hacer lo limita `schema.sql`. La otra clave (*service_role*) **no** se pone nunca en la web.
+La clave *publishable* está pensada para ir en la web: lo que permite hacer lo limita `schema.sql`. La clave *secret* **no** se pone nunca en la web.
 
 ## 5. Publicar
 

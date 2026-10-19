@@ -6,7 +6,7 @@
 
 const CFG = window.BLOSSOM_CONFIG || {};
 const TZ = "America/Asuncion";
-const SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js";
+const SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js";
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const DAYS_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -80,30 +80,30 @@ const SEED = {
     reminder_text: "¡Hola {nombre}! 🌸 Ya pasaron {dias} días desde tu último turno en Blossom. ¿Reservamos tu retoque? Elegí día y horario acá: {link}",
   },
   categories: [
-    { id: "manos", name: "Manos", image: "images/manicura-semi.webp", sort: 0 },
+    { id: "manos", name: "Manos", image: "images/kapping.webp", sort: 0 },
     { id: "esculpidas", name: "Extensión", image: "images/esculpidas-semi.webp", sort: 1 },
     { id: "pies", name: "Pies", image: "images/pedicura-tradicional.webp", sort: 2 },
     { id: "pestanas", name: "Pestañas", image: "images/ext-clasicas.webp", sort: 3 },
-    { id: "peluqueria", name: "Peluquería", image: null, sort: 4 },
+    { id: "peluqueria", name: "Peluquería", image: "images/peluqueria.webp", sort: 4 },
   ],
   // price: guaraníes, or null = "Consultar". duration: minutes (null = a confirmar)
   services: [
     ["mani-trad", "manos", "Manicura tradicional", 35000, 30, "manicura-tradicional"],
-    ["mani-semi", "manos", "Manicura semipermanente", 70000, 50, "manicura-semi", "Sobre el largor de tus uñas naturales. Retoque cada 21 días."],
-    ["rubber", "manos", "Base rubber + semipermanente", 110000, 60, "rubber-semi"],
+    ["mani-semi", "manos", "Manicura semipermanente", 70000, 50, null, "Sobre el largor de tus uñas naturales. Retoque cada 21 días."],
+    ["rubber", "manos", "Base rubber + semipermanente", 110000, 60, null],
     ["kapping", "manos", "Kapping + semipermanente", 130000, 105, "kapping", "Acrílico o polygel, hasta largor 2. Diseños: cotizá por WhatsApp. Retoque cada 21 días."],
     ["extraccion", "manos", "Extracción", 60000, 45, "extraccion", "Acrílico, polygel o gel. Incluye manicura tradicional."],
     ["esc-nude", "esculpidas", "Esculpidas acrílicas nude", 130000, 60, "esculpidas-nude", "Hasta largor 2. Retoque cada 21 días."],
     ["softgel", "esculpidas", "Softgel", 130000, 90, "softgel", "Incluye semipermanente. Diseños: cotizá por WhatsApp. Retoque cada 21 días."],
     ["esc-semi", "esculpidas", "Esculpidas + semipermanente", 160000, 105, "esculpidas-semi", "Acrílico o polygel, hasta largor 2. Diseños: cotizá por WhatsApp. Retoque cada 21 días."],
     ["pedi-trad", "pies", "Pedicura tradicional", 50000, 45, "pedicura-tradicional"],
-    ["pedi-semi", "pies", "Pedicura semipermanente", 80000, 50, "pedicura-semi", "Color de larga duración y brillo impecable por 1 mes."],
+    ["pedi-semi", "pies", "Pedicura semipermanente", 80000, 50, null, "Color de larga duración y brillo impecable por 1 mes."],
     ["spa-pies", "pies", "Spa de pies premium 👑", 140000, 90, "spa-pies", "Pedicura profunda con hidromasaje, aromaterapia, reflexología y parafina. Incluye semipermanente."],
     ["ext-clasicas", "pestanas", "Extensiones clásicas", 160000, 180, "ext-clasicas"],
     ["ext-griego", "pestanas", "Extensiones volumen griego", 180000, 180, "ext-griego", "Efecto tupido."],
     ["ext-brasilero", "pestanas", "Extensiones volumen brasilero", 180000, 180, "ext-brasilero", "Efecto semitupido."],
-    ["lifting", "pestanas", "Lifting de pestañas", null, null, null, "Precio y duración por WhatsApp."],
-    ["pelu", "peluqueria", "Servicios de peluquería", null, null, null, "Contanos qué querés hacerte y te pasamos precio y turno."],
+    ["lifting", "pestanas", "Lifting de pestañas", null, null, "lifting", "Precio y duración por WhatsApp."],
+    ["pelu", "peluqueria", "Servicios de peluquería", null, null, "pelu-balayage", "Contanos qué querés hacerte y te pasamos precio y turno."],
   ].map(([id, category_id, name, price, duration, img, description], sort) => ({
     id, category_id, name, price, duration, sort, active: true,
     image: img ? `images/${img}.webp` : null, description: description || null,

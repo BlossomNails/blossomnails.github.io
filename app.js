@@ -285,7 +285,7 @@ function initReservas() {
       <button type="button" class="pill addon" data-addon="${esc(a.id)}" aria-pressed="${extras.includes(a.id)}">${esc(a.name)}<small>+ ${money(a.price)}</small></button>`).join("");
     const dep = $("#deposit-note");
     dep.hidden = !t.deposit;
-    dep.innerHTML = t.deposit ? `<b>Seña para confirmar: ${money(t.deposit)}</b><small>Al enviar la reserva te mostramos los datos para transferir.</small>` : "";
+    dep.innerHTML = t.deposit ? `<b>Seña para confirmar: ${money(t.deposit)}</b><small>Al enviar la reserva te mostramos los datos para transferir. También podés pagar con tarjeta o QR.</small>` : "";
 
     // professionals: only asked when there's more than one
     const people = staffOptions();
@@ -493,7 +493,7 @@ function initReservas() {
         <b>Seña para confirmar: ${gs(deposit)}</b>
         ${SETTINGS.payment_info ? `<p>${esc(SETTINGS.payment_info).replace(/\n/g, "<br>")}</p>
         <button class="btn btn-ghost sm-copy" type="button" data-copy="${esc(SETTINGS.payment_info)}">Copiar datos</button>` : ""}
-        <small>Mandale el comprobante a Mica por WhatsApp.</small>
+        <small>Mandale el comprobante a Mica por WhatsApp. Si preferís pagar con tarjeta de crédito, débito o QR, pedile los datos por ahí.</small>
       </div>` : ""}
       <a class="btn btn-wa send" href="${href}" target="_blank" rel="noopener"><svg><use href="#i-wa"/></svg>Enviar el mensaje a Mica</a>
       <button class="btn btn-ghost send" id="done-close" type="button">Listo</button>
@@ -552,6 +552,13 @@ function initReservas() {
 /* =========================================================
    SALÓN view
    ========================================================= */
+// "¿Cómo puedo pagar?": shows her transfer details once they're set in the panel
+function renderPayFaq() {
+  const el = $("[data-pay-faq]");
+  if (!el || !SETTINGS.payment_info) return;
+  el.innerHTML = `Por transferencia, con tarjeta de crédito o débito, o con QR.<br><br><b>Para transferir:</b><br>${esc(SETTINGS.payment_info).replace(/\n/g, "<br>")}<br><br>Para pagar con tarjeta o QR, pedile los datos a Mica por WhatsApp.`;
+}
+
 // photos of her work: from the panel (gallery table), the starting set until it loads
 let PHOTOS = SEED.gallery;
 function renderGallery() {
@@ -705,6 +712,7 @@ function applyData(d) {
   renderCatalog();
   renderCategoryCards();
   renderGallery();
+  renderPayFaq();
   renderStatus();
   renderHours();
   wireWhatsAppLinks();

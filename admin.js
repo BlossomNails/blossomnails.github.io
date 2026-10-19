@@ -419,7 +419,7 @@ function confirmMsg(a) {
   if (a.status === "cancelled") return `¡Hola ${first}! Tu turno del ${when} quedó cancelado. Cuando quieras, reservás de nuevo acá: ${bookingUrl()} 🌸`;
   const s = D().settings;
   const pay = depositOpen(a) && s.payment_info
-    ? `\n\nPara dejarlo confirmado te pido una seña de ${gs(a.deposit_due)}:\n${s.payment_info}\nMandame el comprobante por acá. ¡Gracias!` : "";
+    ? `\n\nPara dejarlo confirmado te pido una seña de ${gs(a.deposit_due)}:\n${s.payment_info}\nMandame el comprobante por acá. Si preferís pagar con tarjeta de crédito, débito o QR, avisame y te paso los datos. ¡Gracias!` : "";
   return `¡Hola ${first}! 🌸 Te confirmo tu turno en Blossom el ${when}${a.items.length ? ` (${itemsText(a).replace(/ · /g, ", ")})` : ""}. ¡Te espero!${pay}`;
 }
 function apptReminderMsg(a) {
@@ -1198,7 +1198,7 @@ VIEWS.ajustes = () => {
           <label><span class="lbl">Monto o %</span><input class="field" name="deposit_value" inputmode="numeric" value="${s.deposit_type === "percent" ? s.deposit_value || "" : fmtNum(s.deposit_value || null)}" placeholder="Ej.: 50.000 o 30"></label>
         </div>
         <label><span class="lbl">Datos para transferir</span><textarea class="field" name="payment_info" rows="4" placeholder="Banco, alias, titular…">${esc(s.payment_info)}</textarea></label>
-        <p class="hint">La clienta ve el monto al reservar y estos datos al terminar. También van en tu mensaje de confirmación mientras la seña esté pendiente.</p>
+        <p class="hint">La clienta ve el monto al reservar y estos datos al terminar, con una nota de que también puede pagar con tarjeta o QR pidiéndote los datos por WhatsApp. También van en tu mensaje de confirmación mientras la seña esté pendiente, y en la pregunta «¿Cómo puedo pagar?» de la página.</p>
       </div>`)}
       ${section("Recordatorio del turno", `<div class="card-ed">
         <label><span class="lbl">Mensaje para el día anterior</span><textarea class="field" name="appt_reminder_text" rows="3">${esc(s.appt_reminder_text)}</textarea></label>

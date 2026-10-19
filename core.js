@@ -75,7 +75,7 @@ const SEED = {
     slot_step: 30,        // start times offered every N minutes
     min_notice: 60,       // minutes of notice for same-day bookings
     default_duration: 60, // used when a service has no duration yet
-    auto_confirm: true,
+    auto_confirm: false,  // web bookings wait for Mica, who confirms by WhatsApp
     reminder_days: 21,
     reminder_text: "¡Hola {nombre}! 🌸 Ya pasaron {dias} días desde tu último turno en Blossom. ¿Reservamos tu retoque? Elegí día y horario acá: {link}",
   },
@@ -356,11 +356,20 @@ function SupabaseDB(url, key) {
     },
     async remove(table, id) { must(await sb.from(table).delete().eq("id", id)); },
     async saveSettings(settings) { must(await sb.from("settings").upsert({ id: 1, data: settings })); return settings; },
-    async book(r) {
-      return must(await sb.rpc("book", {
-        p_services: r.service_ids, p_staff: r.staff_id || null, p_date: r.date, p_start: r.start,
-        p_name: r.name, p_phone: r.phone, p_notes: r.notes || null,
-      }));
+    // A plain fetch with keepalive: it is sent immediately and finishes even if the phone jumps to WhatsApp.
+    book(r) {
+      return fetch(`${url}/rest/v1/rpc/book`, {
+        method: "POST", keepalive: true,
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          p_services: r.service_ids, p_staff: r.staff_id || null, p_date: r.date, p_start: r.start,
+          p_name: r.name, p_phone: r.phone, p_notes: r.notes || null,
+        }),
+      }).then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || "No pudimos guardar el turno.");
+        return body;
+      });
     },
     async uploadImage(file) {
       const blob = await resizeImage(file, 900);
@@ -389,10 +398,12 @@ function loadScript(src) {
   });
 }
 
-// resolves to the adapter in use
+// resolves to the adapter in use; DB_NOW is the same adapter once ready, for code that can't wait
 const DB = CFG.supabaseUrl && CFG.supabaseAnonKey
   ? loadScript(SUPABASE_JS).then(() => SupabaseDB(CFG.supabaseUrl, CFG.supabaseAnonKey))
   : Promise.resolve(LocalDB);
+let DB_NOW = null;
+DB.then((db) => { DB_NOW = db; }).catch(() => {});
 
 /* ---------- light / dark ---------- */
 function initTheme() {

@@ -315,8 +315,8 @@ function initReservas() {
         ? "Lo que es a consultar lo calculamos en 1 hora; Mica te avisa si hace falta más tiempo."
         : `Solo mostramos horarios en los que entran tus ${dur(t.need)} de servicio.`;
     }
-    $("#book").disabled = !(booking.day && booking.slot != null);
-    $("#wa-instead").href = waLink(waMessage(false));
+    $("#book").setAttribute("aria-disabled", !(booking.day && booking.slot != null));
+    paintLinks();
   }
 
   function openSheet() {
@@ -369,82 +369,99 @@ function initReservas() {
     if (e.target.closest("#done-close")) closeSheet();
   });
 
-  function waMessage(booked) {
+  // The message Mica got before the agenda existed: she answers it to confirm the turn.
+  function waMessage() {
     const t = totals();
     const name = $("#name").value.trim();
     const notes = $("#notes").value.trim();
-    const when = booking.day
-      ? `${DAYS[dowOf(booking.day)].toLowerCase()} ${shortDate(booking.day)}${booking.slot != null ? ` a las ${hhmm(booking.slot)} hs` : ""}`
-      : "a coordinar";
+    const day = booking.day ? `${DAYS[dowOf(booking.day)].toLowerCase()} ${shortDate(booking.day)}` : "a coordinar";
+    const time = booking.day && booking.slot != null ? `${hhmm(booking.slot)} hs` : "a coordinar";
     return [
-      `¡Hola Mica! 🌸${name ? ` Soy ${name}.` : ""} ${booked ? "Acabo de reservar por la web:" : "Quiero reservar:"}`,
+      `¡Hola Mica! 🌸${name ? ` Soy ${name}.` : ""} Quiero reservar:`,
       ...t.items.map((s) => `• ${s.name} (${s.price ? gs(s.price) : "consultar precio"})`),
       "",
-      `📅 ${when}`,
-      `Total estimado: ${t.price ? gs(t.price) + (currency !== "PYG" ? ` (≈ ${convert(t.price)})` : "") : "a consultar"}${t.price && t.unknown ? " + servicios a consultar" : ""}`,
+      `Total estimado: ${t.price ? gs(t.price) + (currency !== "PYG" ? ` (≈ ${convert(t.price)})` : "") : "a consultar"}${t.price && t.unknown ? " + servicios a consultar" : ""}${t.known ? ` · ${dur(t.known)}` : ""}`,
+      `📅 Día: ${day}`,
+      `🕐 Horario: ${time}`,
       ...(notes ? [`📝 ${notes}`] : []),
       "",
-      booked ? "¡Gracias!" : "¿Tenés disponible? ¡Gracias!",
+      "¿Tenés disponible? ¡Gracias!",
     ].join("\n");
   }
-  $("#name").addEventListener("input", () => { $("#wa-instead").href = waLink(waMessage(false)); });
-  $("#notes").addEventListener("input", () => { $("#wa-instead").href = waLink(waMessage(false)); });
+  // both buttons are real links (window.open after a wait gets blocked), rebuilt whenever the booking changes
+  function paintLinks() {
+    const href = waLink(waMessage());
+    $("#book").href = href;
+    $("#wa-instead").href = href;
+    return href;
+  }
+  $("#name").addEventListener("input", paintLinks);
+  $("#notes").addEventListener("input", paintLinks);
 
-  // ---- confirm ----
-  $("#book").addEventListener("click", async () => {
+  // ---- send: one tap saves the turn in Mica's agenda and opens WhatsApp with the message ----
+  let sending = false;
+  $("#book").addEventListener("click", (e) => {
     const err = $("#book-error");
     const name = $("#name").value.trim();
     const phone = normPhone($("#phone").value);
-    const fail = (msg, field) => { err.textContent = msg; err.hidden = false; if (field) $(field).focus(); };
-    if (!name) return fail("Escribí tu nombre.", "#name");
-    if (phone.length < 8 || phone.length > 15) return fail("Revisá tu número de WhatsApp, por ejemplo 0981 123 456.", "#phone");
+    const stop = (msg, field) => { e.preventDefault(); err.textContent = msg; err.hidden = false; if (field) $(field).focus(); };
+    if (sending) return e.preventDefault();
+    if (!(booking.day && booking.slot != null)) return stop("Elegí un día y un horario.");
+    if (!name) return stop("Escribí tu nombre.", "#name");
+    if (phone.length < 8 || phone.length > 15) return stop("Revisá tu número de WhatsApp, por ejemplo 0981 123 456.", "#phone");
+    if (!DB_NOW) return stop("Un segundo, todavía estamos cargando. Probá de nuevo.");
     err.hidden = true;
-    const btn = $("#book");
-    btn.disabled = true; btn.textContent = "Reservando…";
-    try {
-      const db = await DB;
-      const res = await db.book({
-        service_ids: cart, staff_id: booking.staff, date: booking.day, start: booking.slot,
-        name, phone, notes: $("#notes").value.trim(),
-      });
+    const href = paintLinks(); // the link opens WhatsApp as soon as this handler returns
+    const t = totals();
+    const req = {
+      service_ids: [...cart], staff_id: booking.staff, date: booking.day, start: booking.slot,
+      name, phone, notes: $("#notes").value.trim(),
+    };
+    sending = true;
+    $("#book").classList.add("is-busy");
+    // sent right here, not after an await, so it leaves before the phone switches to WhatsApp
+    let saving;
+    try { saving = DB_NOW.book(req); } catch (x) { saving = Promise.reject(x); }
+    saving.then((res) => {
       const m = me.get();
       m.name = name; m.phone = phone;
       m.bookings = [...(m.bookings || []), {
         id: res.id, staff_id: res.staff_id, date: res.date, start_min: res.start_min, end_min: res.end_min,
-        names: totals().items.map((s) => s.name),
+        names: t.items.map((s) => s.name),
       }].slice(-20);
       me.set(m);
-      showDone(res, name);
+      showDone(res, name, t, href);
       loadData().catch(() => {});
-    } catch (e) {
-      fail(e.message || "No se pudo reservar. Probá de nuevo.");
+    }).catch(async (x) => {
+      err.textContent = `${x.message || "No pudimos guardar el turno."} Si ya le mandaste el mensaje, Mica te responde igual por WhatsApp.`;
+      err.hidden = false;
       await loadData().catch(() => {});
       renderSheet();
-    } finally {
-      btn.textContent = "Confirmar reserva";
-      btn.disabled = !(booking.day && booking.slot != null);
-    }
+    }).finally(() => {
+      sending = false;
+      $("#book").classList.remove("is-busy");
+    });
   });
 
-  function showDone(res, name) {
-    const t = totals();
+  function showDone(res, name, t, href) {
     const who = DATA.staff.find((s) => s.id === res.staff_id);
     const pending = res.status === "pending";
-    $("#sheet-title").textContent = pending ? "¡Pedido enviado!" : "¡Turno reservado!";
+    const first = esc(name.split(" ")[0]);
+    $("#sheet-title").textContent = pending ? "¡Lugar guardado!" : "¡Turno reservado!";
     $("#sheet-done").innerHTML = `
       <div class="done-mark" aria-hidden="true"><svg class="sparkle"><use href="#i-sparkle"/></svg></div>
       <p class="done-lead">${pending
-        ? `Gracias, ${esc(name.split(" ")[0])}. Mica revisa tu pedido y te confirma por WhatsApp.`
-        : `¡Listo, ${esc(name.split(" ")[0])}! Te esperamos.`}</p>
+        ? `Gracias, ${first}. Te guardamos el lugar: mandale el mensaje a Mica por WhatsApp y ella te confirma el turno.`
+        : `¡Listo, ${first}! Te esperamos.`}</p>
       <div class="done-card">
         <strong>${longDate(res.date)} · ${hhmm(res.start_min)} hs</strong>
         <span>${t.items.map((s) => esc(s.name)).join(" · ")}</span>
         <span class="muted">${who && DATA.staff.length > 1 ? `con ${esc(who.name)} · ` : ""}${t.unknownDuration ? "aprox. " : ""}${dur(res.end_min - res.start_min)}</span>
         <span class="price">${t.price ? gs(t.price) + (t.unknown ? " + consultar" : "") : "Precio a consultar"}</span>
       </div>
-      <a class="btn btn-wa send" href="${waLink(waMessage(true))}" target="_blank" rel="noopener"><svg><use href="#i-wa"/></svg>Avisarle a Mica por WhatsApp</a>
+      <a class="btn btn-wa send" href="${href}" target="_blank" rel="noopener"><svg><use href="#i-wa"/></svg>Enviar el mensaje a Mica</a>
       <button class="btn btn-ghost send" id="done-close" type="button">Listo</button>
-      <p class="fine">Si necesitás cambiar o cancelar el turno, escribile a Mica.</p>`;
+      <p class="fine">Si WhatsApp no se abrió solo, tocá el botón verde. Para cambiar o cancelar, escribile a Mica.</p>`;
     $("#sheet-form").hidden = true;
     $("#sheet-done").hidden = false;
     $("#sheet-done").focus();

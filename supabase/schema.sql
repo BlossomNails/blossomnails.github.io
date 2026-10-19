@@ -281,8 +281,13 @@ begin
       v_blocks := coalesce(v_staff.hours, s -> 'hours') -> extract(dow from p_date)::int;
     end if;
 
+    -- the day's closing time is the last start time (that turn may run past it);
+    -- before a pause the turn has to end in time. Mirrors fitsHours() in core.js.
     if exists (select 1 from jsonb_array_elements(coalesce(v_blocks, '[]')) b
-               where (b ->> 0)::int <= p_start and v_end <= (b ->> 1)::int) then
+               where (b ->> 0)::int <= p_start
+                 and (v_end <= (b ->> 1)::int
+                      or ((b ->> 1)::int = (select max((x ->> 1)::int) from jsonb_array_elements(v_blocks) x)
+                          and p_start <= (b ->> 1)::int))) then
       perform pg_advisory_xact_lock(hashtext(v_staff.id || p_date::text));
       if not exists (select 1 from public.appointments a
                      where a.staff_id = v_staff.id and a.date = p_date

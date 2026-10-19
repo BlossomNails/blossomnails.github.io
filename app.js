@@ -157,6 +157,7 @@ function initReservas() {
   if (!list) return;
 
   let cart = cartStore.get();
+  let extras = []; // add-on ids picked in the sheet
   const booking = { staff: null, day: null, slot: null };
   const svc = (id) => SERVICES.find((s) => s.id === id);
 
@@ -220,20 +221,25 @@ function initReservas() {
 
   function totals() {
     const items = cart.map(svc);
+    const offered = addonsFor(DATA, cart);
+    const adds = extras.map((id) => offered.find((a) => a.id === id)).filter(Boolean);
     const def = SETTINGS.default_duration;
+    const extraPrice = adds.reduce((a, x) => a + x.price, 0), extraMin = adds.reduce((a, x) => a + (x.duration || 0), 0);
+    const price = items.reduce((a, s) => a + (s.price || 0), 0) + extraPrice;
     return {
-      items,
-      price: items.reduce((a, s) => a + (s.price || 0), 0),
-      need: items.reduce((a, s) => a + (s.duration || def), 0),
-      known: items.reduce((a, s) => a + (s.duration || 0), 0),
+      items, adds, price,
+      need: items.reduce((a, s) => a + (s.duration || def), 0) + extraMin,
+      known: items.reduce((a, s) => a + (s.duration || 0), 0) + extraMin,
       unknown: items.some((s) => !s.price),
       unknownDuration: items.some((s) => !s.duration),
+      deposit: depositFor(SETTINGS, price),
     };
   }
 
   function sync() {
     if (!DATA) return; // the catalogue hasn't loaded yet
     cartStore.set(cart);
+    extras = extras.filter((id) => addonsFor(DATA, cart).some((a) => a.id === id));
     $$(".svc").forEach((li) => {
       const on = cart.includes(li.dataset.id);
       li.classList.toggle("is-added", on);
@@ -271,6 +277,15 @@ function initReservas() {
       <button class="rm" type="button" data-rm="${esc(s.id)}" aria-label="Quitar ${esc(s.name)}">×</button></li>`).join("");
     $("#tot-price").textContent = t.price ? money(t.price) + (t.unknown ? " + consultar" : "") : "A consultar";
     $("#tot-min").textContent = t.unknownDuration ? `aprox. ${dur(t.need)}` : dur(t.need);
+
+    // extras that go with these services (francesitas, largor...)
+    const offered = addonsFor(DATA, cart);
+    $("#addons-step").hidden = !offered.length;
+    $("#addon-pills").innerHTML = offered.map((a) => `
+      <button type="button" class="pill addon" data-addon="${esc(a.id)}" aria-pressed="${extras.includes(a.id)}">${esc(a.name)}<small>+ ${money(a.price)}</small></button>`).join("");
+    const dep = $("#deposit-note");
+    dep.hidden = !t.deposit;
+    dep.innerHTML = t.deposit ? `<b>Seña para confirmar: ${money(t.deposit)}</b><small>Al enviar la reserva te mostramos los datos para transferir.</small>` : "";
 
     // professionals: only asked when there's more than one
     const people = staffOptions();
@@ -352,6 +367,14 @@ function initReservas() {
   sheet.addEventListener("click", (e) => {
     const rm = e.target.closest("[data-rm]");
     if (rm) { cart = cart.filter((x) => x !== rm.dataset.rm); sync(); return; }
+    const ad = e.target.closest("[data-addon]");
+    if (ad) {
+      const id = ad.dataset.addon;
+      extras = extras.includes(id) ? extras.filter((x) => x !== id) : [...extras, id];
+      renderSheet();
+      $(`[data-addon="${id}"]`, sheet)?.focus({ preventScroll: true });
+      return;
+    }
     const st = e.target.closest("[data-staff]");
     if (st) { booking.staff = st.dataset.staff || null; renderSheet(); $(`[data-staff="${st.dataset.staff}"]`, sheet).focus({ preventScroll: true }); return; }
     const day = e.target.closest("[data-day]");
@@ -367,6 +390,10 @@ function initReservas() {
       return;
     }
     if (e.target.closest("#done-close")) closeSheet();
+    const copy = e.target.closest("[data-copy]");
+    if (copy) {
+      navigator.clipboard?.writeText(copy.dataset.copy).then(() => { copy.textContent = "¡Copiado!"; }).catch(() => {});
+    }
   });
 
   // The message Mica got before the agenda existed: she answers it to confirm the turn.
@@ -379,10 +406,12 @@ function initReservas() {
     return [
       `¡Hola Mica! 🌸${name ? ` Soy ${name}.` : ""} Quiero reservar:`,
       ...t.items.map((s) => `• ${s.name} (${s.price ? gs(s.price) : "consultar precio"})`),
+      ...t.adds.map((a) => `• + ${a.name} (${gs(a.price)})`),
       "",
       `Total estimado: ${t.price ? gs(t.price) + (currency !== "PYG" ? ` (≈ ${convert(t.price)})` : "") : "a consultar"}${t.price && t.unknown ? " + servicios a consultar" : ""}${t.known ? ` · ${dur(t.known)}` : ""}`,
       `📅 Día: ${day}`,
       `🕐 Horario: ${time}`,
+      ...(t.deposit ? [`💳 Seña: ${gs(t.deposit)}`] : []),
       ...(notes ? [`📝 ${notes}`] : []),
       "",
       "¿Tenés disponible? ¡Gracias!",
@@ -414,7 +443,7 @@ function initReservas() {
     const href = paintLinks(); // the link opens WhatsApp as soon as this handler returns
     const t = totals();
     const req = {
-      service_ids: [...cart], staff_id: booking.staff, date: booking.day, start: booking.slot,
+      service_ids: [...cart], addon_ids: [...extras], staff_id: booking.staff, date: booking.day, start: booking.slot,
       name, phone, notes: $("#notes").value.trim(),
     };
     sending = true;
@@ -427,7 +456,7 @@ function initReservas() {
       m.name = name; m.phone = phone;
       m.bookings = [...(m.bookings || []), {
         id: res.id, staff_id: res.staff_id, date: res.date, start_min: res.start_min, end_min: res.end_min,
-        names: t.items.map((s) => s.name),
+        names: [...t.items, ...t.adds].map((s) => s.name),
       }].slice(-20);
       me.set(m);
       showDone(res, name, t, href);
@@ -447,6 +476,7 @@ function initReservas() {
     const who = DATA.staff.find((s) => s.id === res.staff_id);
     const pending = res.status === "pending";
     const first = esc(name.split(" ")[0]);
+    const deposit = res.deposit_due ?? t.deposit;
     $("#sheet-title").textContent = pending ? "¡Lugar guardado!" : "¡Turno reservado!";
     $("#sheet-done").innerHTML = `
       <div class="done-mark" aria-hidden="true"><svg class="sparkle"><use href="#i-sparkle"/></svg></div>
@@ -455,10 +485,16 @@ function initReservas() {
         : `¡Listo, ${first}! Te esperamos.`}</p>
       <div class="done-card">
         <strong>${longDate(res.date)} · ${hhmm(res.start_min)} hs</strong>
-        <span>${t.items.map((s) => esc(s.name)).join(" · ")}</span>
+        <span>${[...t.items, ...t.adds].map((s) => esc(s.name)).join(" · ")}</span>
         <span class="muted">${who && DATA.staff.length > 1 ? `con ${esc(who.name)} · ` : ""}${t.unknownDuration ? "aprox. " : ""}${dur(res.end_min - res.start_min)}</span>
         <span class="price">${t.price ? gs(t.price) + (t.unknown ? " + consultar" : "") : "Precio a consultar"}</span>
       </div>
+      ${deposit ? `<div class="pay-box">
+        <b>Seña para confirmar: ${gs(deposit)}</b>
+        ${SETTINGS.payment_info ? `<p>${esc(SETTINGS.payment_info).replace(/\n/g, "<br>")}</p>
+        <button class="btn btn-ghost sm-copy" type="button" data-copy="${esc(SETTINGS.payment_info)}">Copiar datos</button>` : ""}
+        <small>Mandale el comprobante a Mica por WhatsApp.</small>
+      </div>` : ""}
       <a class="btn btn-wa send" href="${href}" target="_blank" rel="noopener"><svg><use href="#i-wa"/></svg>Enviar el mensaje a Mica</a>
       <button class="btn btn-ghost send" id="done-close" type="button">Listo</button>
       <p class="fine">Si WhatsApp no se abrió solo, tocá el botón verde. Para cambiar o cancelar, escribile a Mica.</p>`;
@@ -467,7 +503,7 @@ function initReservas() {
     $("#sheet-done").focus();
     sheet.scrollTop = 0;
     // the booking is done: start fresh even if she leaves without tapping "Listo"
-    cart = []; booking.day = booking.slot = null;
+    cart = []; extras = []; booking.day = booking.slot = null;
     $("#notes").value = "";
     sync();
     renderMe();
@@ -516,33 +552,15 @@ function initReservas() {
 /* =========================================================
    SALÓN view
    ========================================================= */
-const GALLERY = [
-  ["esculpidas-semi", "Extensiones con diseño de flores"],
-  ["unas-hello-kitty", "Francesitas con diseño de Hello Kitty"],
-  ["ext-griego", "Extensiones volumen griego"],
-  ["unas-celeste-rosa", "Diseño en celeste y rosa"],
-  ["peluqueria", "Ondas"],
-  ["softgel", "Softgel con diseño de flor"],
-  ["unas-estrellas", "Diseño de estrellas"],
-  ["lifting", "Lifting de pestañas"],
-  ["unas-bordo", "Diseño en bordó"],
-  ["pelu-balayage", "Color con ondas"],
-  ["esculpidas-nude", "Extensiones nude"],
-  ["unas-corazones", "Diseño de corazones"],
-  ["ext-brasilero", "Extensiones volumen brasilero"],
-  ["unas-strass", "Rosa con strass"],
-  ["pelu-ondas", "Rubio con ondas"],
-  ["kapping", "Kapping con francesitas"],
-  ["unas-hojas", "Diseño de hojas"],
-  ["unas-blanco-negro", "Diseño en blanco y negro"],
-  ["ext-clasicas", "Extensiones clásicas"],
-  ["pelu-corte", "Corte en capas"],
-  ["unas-disney", "Diseño de Disney"],
-  ["unas-carey", "Carey y estrellas"],
-  ["extraccion", "Extensiones"],
-  ["spa-pies", "Spa de pies"],
-  ["pedicura-tradicional", "Pedicura tradicional"],
-];
+// photos of her work: from the panel (gallery table), the starting set until it loads
+let PHOTOS = SEED.gallery;
+function renderGallery() {
+  const g = $("#gallery");
+  if (!g) return;
+  PHOTOS = [...(DATA?.gallery || SEED.gallery)].filter((p) => p.active !== false).sort((a, b) => a.sort - b.sort);
+  g.innerHTML = PHOTOS.map((p, i) =>
+    `<button type="button" data-i="${i}" aria-label="Ver foto${p.caption ? ": " + esc(p.caption) : ""}"><img src="${esc(p.image)}" alt="${esc(p.caption || "Trabajo de Blossom")}" loading="lazy"></button>`).join("");
+}
 
 // category cards with "Desde Gs. X"
 function renderCategoryCards() {
@@ -567,15 +585,14 @@ function initSalon() {
 
   const g = $("#gallery");
   if (!g) return;
-  g.innerHTML = GALLERY.map(([f, alt], i) =>
-    `<button type="button" data-i="${i}" aria-label="Ver foto: ${alt}"><img src="images/${f}.webp" alt="${alt}" loading="lazy"></button>`).join("");
+  renderGallery();
 
   const lb = $("#lightbox"), img = $("img", lb), cap = $("figcaption", lb);
   const focus = modalFocus(lb);
   let cur = 0;
   const show = (i) => {
-    cur = (i + GALLERY.length) % GALLERY.length;
-    img.src = `images/${GALLERY[cur][0]}.webp`; img.alt = GALLERY[cur][1]; cap.textContent = GALLERY[cur][1];
+    cur = (i + PHOTOS.length) % PHOTOS.length;
+    img.src = PHOTOS[cur].image; img.alt = PHOTOS[cur].caption || ""; cap.textContent = PHOTOS[cur].caption || "";
   };
   const close = () => { lb.classList.remove("open"); focus.close(); };
   g.addEventListener("click", (e) => {
@@ -684,9 +701,10 @@ function applyData(d) {
   SETTINGS = { ...SEED.settings, ...d.settings };
   DATA.settings = SETTINGS;
   SERVICES = [...d.services].sort((a, b) => a.sort - b.sort);
-  CATEGORIES = [...d.categories].sort((a, b) => a.sort - b.sort);
+  CATEGORIES = [...d.categories].sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
   renderCatalog();
   renderCategoryCards();
+  renderGallery();
   renderStatus();
   renderHours();
   wireWhatsAppLinks();

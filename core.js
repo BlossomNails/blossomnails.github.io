@@ -76,6 +76,14 @@ const SEED = {
     min_notice: 60,       // minutes of notice for same-day bookings
     default_duration: 60, // used when a service has no duration yet
     auto_confirm: false,  // web bookings wait for Mica, who confirms by WhatsApp
+    // seña: off until Mica sets the amount. deposit_type "fixed" (Gs.) or "percent" (of the total)
+    deposit_enabled: false,
+    deposit_type: "fixed",
+    deposit_value: 0,
+    payment_info: "",     // transfer details shown to the client
+    appt_reminder_text: "¡Hola {nombre}! 🌸 Te recuerdo tu turno de mañana, {dia} a las {hora}, en Blossom ({servicios}). ¡Te espero!",
+    review_url: "",       // her Google review link
+    review_text: "¡Gracias por venir, {nombre}! 🌸 Si te gustó cómo quedó, ¿me dejarías una reseña en Google? Me ayuda muchísimo: {link}",
     reminder_days: 21,
     reminder_text: "¡Hola {nombre}! 🌸 Ya pasaron {dias} días desde tu último turno en Blossom. ¿Reservamos tu retoque? Elegí día y horario acá: {link}",
   },
@@ -85,6 +93,8 @@ const SEED = {
     { id: "pies", name: "Pies", image: "images/pedicura-tradicional.webp", sort: 2 },
     { id: "pestanas", name: "Pestañas", image: "images/ext-clasicas.webp", sort: 3 },
     { id: "peluqueria", name: "Peluquería", image: "images/peluqueria.webp", sort: 4 },
+    { id: "cejas", name: "Cejas", image: null, sort: 4 },
+    { id: "maquillaje", name: "Maquillaje", image: null, sort: 6 },
   ],
   // price: guaraníes, or null = "Consultar". duration: minutes (null = a confirmar)
   services: [
@@ -102,10 +112,57 @@ const SEED = {
     ["ext-clasicas", "pestanas", "Extensiones clásicas", 160000, 180, "ext-clasicas"],
     ["ext-griego", "pestanas", "Extensiones volumen griego", 180000, 180, "ext-griego", "Efecto tupido."],
     ["ext-brasilero", "pestanas", "Extensiones volumen brasilero", 180000, 180, "ext-brasilero", "Efecto semitupido."],
-    ["lifting", "pestanas", "Lifting de pestañas", null, null, "lifting", "Precio y duración por WhatsApp."],
+    ["lifting", "pestanas", "Lifting de pestañas", 110000, 120, "lifting", "Realza la mirada de forma natural. Dura 30 días."],
     ["pelu", "peluqueria", "Servicios de peluquería", null, null, "pelu-balayage", "Contanos qué querés hacerte y te pasamos precio y turno."],
-  ].map(([id, category_id, name, price, duration, img, description], sort) => ({
-    id, category_id, name, price, duration, sort, active: true,
+    // added from Mica's PDF catalogues (2026-10)
+    ["kapping-nude", "manos", "Kapping nude", 100000, 105, null, "Refuerzo sobre tu uña natural, sin agregar largo. Gel, acrílico o polygel. Retoque cada 21 días.", 101],
+    ["rubber-nude", "manos", "Base rubber nude", 80000, 60, null, "Fortalece uñas naturales finas o quebradizas, sin agregar largo.", 102],
+    ["service-kapping-nude", "manos", "Service kapping nude", 100000, null, null, "Mantenimiento de tu kapping.", 103],
+    ["service-kapping-semi", "manos", "Service kapping + semipermanente", 110000, null, null, "Mantenimiento de tu kapping con semipermanente.", 104],
+    ["service-esc-nude", "esculpidas", "Service esculpidas nude", 100000, null, null, "Mantenimiento de tus esculpidas.", 111],
+    ["service-esc-semi", "esculpidas", "Service esculpidas + semipermanente", 130000, null, null, "Mantenimiento de tus esculpidas con semipermanente.", 112],
+    ["service-softgel", "esculpidas", "Service softgel", 110000, null, null, "Mantenimiento de tu softgel.", 113],
+    ["ext-hawaiano", "pestanas", "Extensiones volumen hawaiano", 180000, 180, null, null, 121],
+    ["ext-foxy", "pestanas", "Extensiones foxy eyes", 200000, 180, null, null, 122],
+    ["ext-anime", "pestanas", "Extensiones efecto anime", 200000, 180, null, null, 123],
+    ["mant-clasicas", "pestanas", "Mantenimiento clásicas", 140000, null, null, "Cada 15 a 29 días. Después de 30 días se cobra como colocación nueva.", 124],
+    ["mant-volumen", "pestanas", "Mantenimiento volumen (brasilero, hawaiano o griego)", 160000, null, null, "Cada 15 a 29 días. Después de 30 días se cobra como colocación nueva.", 125],
+    ["mant-foxy-anime", "pestanas", "Mantenimiento foxy eyes o efecto anime", 180000, null, null, "Cada 15 a 29 días. Después de 30 días se cobra como colocación nueva.", 126],
+    ["laminacion-cejas", "cejas", "Laminación de cejas", 130000, 120, null, "Para una mirada más marcada. Incluye tinte. Dura 30 días.", 131],
+    ["cejas-hilo", "cejas", "Diseño de cejas + depilación con hilo", 40000, null, null, null, 132],
+    ["cejas-hilo-henna", "cejas", "Diseño de cejas + depilación con hilo + henna", 70000, null, null, null, 133],
+    ["cejas-perfilado-henna", "cejas", "Diseño de cejas + perfilado + henna", 50000, null, null, null, 134],
+    ["cejas-cera", "cejas", "Depilación con cera: cejas, bozo y mentón", 50000, null, null, "Incluye el diseño de cejas.", 135],
+    ["cejas-marcacion", "cejas", "Diseño de cejas + perfilado + marcación", 25000, null, null, null, 136],
+    ["pelu-bano", "peluqueria", "Baño capilar", 20000, null, null, null, 141],
+    ["pelu-bano-alfaparf", "peluqueria", "Baño Alfaparf Semi di Lino", 50000, null, null, null, 142],
+    ["pelu-bano-mascarilla", "peluqueria", "Baño Alfaparf + mascarilla", 70000, null, null, null, 143],
+    ["pelu-secado", "peluqueria", "Secado", 15000, null, null, null, 144],
+    ["pelu-secado-difusor", "peluqueria", "Secado con difusor", 20000, null, null, null, 145],
+    ["pelu-brushing", "peluqueria", "Brushing", 40000, null, null, "Precio desde Gs. 40.000, según el largo.", 146],
+    ["pelu-brushing-mov", "peluqueria", "Brushing con movimiento", 50000, null, null, null, 147],
+    ["pelu-brushing-plancha", "peluqueria", "Brushing + planchita", 60000, null, null, null, 148],
+    ["pelu-ondas", "peluqueria", "Ondas", 70000, null, "pelu-ondas", null, 149],
+    ["pelu-corte", "peluqueria", "Corte", 30000, null, "pelu-corte", "Precio desde Gs. 30.000.", 150],
+    ["pelu-semi-recogido", "peluqueria", "Peinado semi recogido", 80000, null, null, null, 151],
+    ["pelu-recogido", "peluqueria", "Peinado recogido", 100000, null, null, null, 152],
+    ["pelu-peinado-ninas", "peluqueria", "Peinado para niñas", 30000, null, null, "Precio desde Gs. 30.000.", 153],
+    ["pelu-colageno", "peluqueria", "Colágeno", 90000, null, null, "Para cabello seco y deshidratado: hidrata y da suavidad y brillo. Incluye brushing y acabado profesional.", 154],
+    ["pelu-keratina", "peluqueria", "Keratina", 120000, null, null, "Para cabello con frizz, poroso o difícil de manejar. Incluye brushing y acabado profesional.", 155],
+    ["pelu-botox", "peluqueria", "Botox capilar", 120000, null, null, "Para cabello dañado, débil o con frizz. Incluye brushing y acabado profesional.", 156],
+    ["pelu-alisado-organico", "peluqueria", "Alisado orgánico", 250000, null, null, "Incluye brushing y acabado profesional.", 157],
+    ["pelu-alisado-progresivo", "peluqueria", "Alisado progresivo", 200000, null, null, "Incluye brushing y acabado profesional.", 158],
+    ["pelu-raiz", "peluqueria", "Retoque de raíz", 170000, null, null, "Incluye brushing y acabado profesional.", 159],
+    ["pelu-matizacion", "peluqueria", "Matización", 130000, null, null, "Incluye brushing y acabado profesional.", 160],
+    ["pelu-balayage", "peluqueria", "Balayage", 450000, null, "pelu-balayage", "Incluye brushing y acabado profesional.", 161],
+    ["pelu-morena", "peluqueria", "Morena iluminada", 300000, null, null, "Incluye brushing y acabado profesional.", 162],
+    ["pelu-mechas", "peluqueria", "Mechas tradicionales", 350000, null, null, "Incluye brushing y acabado profesional.", 163],
+    ["pelu-combo-brushing", "peluqueria", "Combo: lavado + brushing + planchita", 80000, null, null, "Válido de lunes a jueves.", 164],
+    ["pelu-combo-alfaparf", "peluqueria", "Combo: tratamiento Alfaparf + corte + secado", 100000, null, null, "Válido de lunes a jueves.", 165],
+    ["makeup-express", "maquillaje", "Makeup express", 130000, null, null, "Limpieza facial exprés, base sin correcciones y ojos en tonos suaves. Pestañas postizas de regalo.", 171],
+    ["makeup-social", "maquillaje", "Social makeup", 230000, null, null, "Preparación de piel, base de alta cobertura, contorno, ojos definidos y fijación. Pestañas postizas de regalo.", 172],
+  ].map(([id, category_id, name, price, duration, img, description, sort], i) => ({
+    id, category_id, name, price, duration, sort: sort ?? i, active: true,
     image: img ? `images/${img}.webp` : null, description: description || null,
   })),
   staff: [
@@ -115,6 +172,44 @@ const SEED = {
   clients: [],
   appointments: [],
   exceptions: [], // special days: { date, staff_id (null = whole salon), blocks ([] = closed), note }
+  // extras added to a service. category_ids: null = offered with every service
+  addons: [
+    { id: "largor-3", name: "Largor 3 o 4", price: 10000, duration: 0, category_ids: ["esculpidas"], active: true, sort: 1 },
+    { id: "largor-5", name: "Largor 5 o más", price: 20000, duration: 0, category_ids: ["esculpidas"], active: true, sort: 2 },
+    { id: "francesitas", name: "Francesitas", price: 20000, duration: 0, category_ids: ["manos", "esculpidas"], active: true, sort: 3 },
+    { id: "ojo-gato", name: "Ojo de gato", price: 20000, duration: 0, category_ids: ["manos", "esculpidas"], active: true, sort: 4 },
+    { id: "reconstruccion", name: "Reconstrucción de una uña", price: 10000, duration: 0, category_ids: ["manos", "esculpidas"], active: true, sort: 5 },
+    { id: "extraccion-semi", name: "Extracción de semipermanente (incluye manicura)", price: 30000, duration: 0, category_ids: ["manos", "esculpidas"], active: true, sort: 6 },
+    { id: "extraccion-acrilico", name: "Extracción de acrílico, polygel, softgel o kapping (incluye manicura)", price: 50000, duration: 0, category_ids: ["manos", "esculpidas"], active: true, sort: 7 },
+  ],
+  // photos of her work on the salon page
+  gallery: [
+    ["esculpidas-semi", "Extensiones con diseño de flores"],
+    ["unas-hello-kitty", "Francesitas con diseño de Hello Kitty"],
+    ["ext-griego", "Extensiones volumen griego"],
+    ["unas-celeste-rosa", "Diseño en celeste y rosa"],
+    ["peluqueria", "Ondas"],
+    ["softgel", "Softgel con diseño de flor"],
+    ["unas-estrellas", "Diseño de estrellas"],
+    ["lifting", "Lifting de pestañas"],
+    ["unas-bordo", "Diseño en bordó"],
+    ["pelu-balayage", "Color con ondas"],
+    ["esculpidas-nude", "Extensiones nude"],
+    ["unas-corazones", "Diseño de corazones"],
+    ["ext-brasilero", "Extensiones volumen brasilero"],
+    ["unas-strass", "Rosa con strass"],
+    ["pelu-ondas", "Rubio con ondas"],
+    ["kapping", "Kapping con francesitas"],
+    ["unas-hojas", "Diseño de hojas"],
+    ["unas-blanco-negro", "Diseño en blanco y negro"],
+    ["ext-clasicas", "Extensiones clásicas"],
+    ["pelu-corte", "Corte en capas"],
+    ["unas-disney", "Diseño de Disney"],
+    ["unas-carey", "Carey y estrellas"],
+    ["extraccion", "Extensiones"],
+    ["spa-pies", "Spa de pies"],
+    ["pedicura-tradicional", "Pedicura tradicional"],
+  ].map(([img, caption], sort) => ({ id: `g${pad(sort + 1)}`, image: `images/${img}.webp`, caption, active: true, sort })),
 };
 
 let SETTINGS = { ...SEED.settings };
@@ -174,13 +269,31 @@ function freeStarts(data, staff, key, need, { ignoreId, now = nowInSalon(), noti
 }
 
 const lineOf = (s, def) => ({ service_id: s.id, name: s.name, price: s.price, duration: s.duration || def });
+const addonLine = (a) => ({ addon_id: a.id, name: a.name, price: a.price, duration: a.duration || 0 });
+
+// add-ons offered with these services (by category)
+function addonsFor(data, serviceIds) {
+  const cats = new Set(serviceIds.map((id) => data.services.find((x) => x.id === id)?.category_id));
+  return (data.addons || []).filter((a) => a.active && (!a.category_ids || a.category_ids.some((c) => cats.has(c))))
+    .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+}
+
+// seña for a total: a fixed amount (never more than the total) or a percentage rounded to thousands
+function depositFor(s, total) {
+  if (!s.deposit_enabled || !(s.deposit_value > 0)) return 0;
+  if (s.deposit_type === "percent") return Math.round((total * s.deposit_value) / 100000) * 1000;
+  return total > 0 ? Math.min(s.deposit_value, total) : s.deposit_value;
+}
 
 // Works out a web booking: which professional takes it, the price and the length. Mirrors book() in schema.sql.
-function planBooking(data, { service_ids, staff_id, date, start }, now = nowInSalon()) {
+function planBooking(data, { service_ids, addon_ids = [], staff_id, date, start }, now = nowInSalon()) {
   const s = data.settings;
   const services = service_ids.map((id) => data.services.find((x) => x.id === id && x.active));
   if (!services.length || services.some((x) => !x)) return { error: "Algún servicio ya no está disponible. Recargá la página." };
-  const items = services.map((x) => lineOf(x, s.default_duration));
+  const offered = addonsFor(data, service_ids);
+  const addons = addon_ids.map((id) => offered.find((a) => a.id === id));
+  if (addons.some((a) => !a)) return { error: "Algún adicional ya no está disponible. Recargá la página." };
+  const items = [...services.map((x) => lineOf(x, s.default_duration)), ...addons.map(addonLine)];
   const duration = items.reduce((a, x) => a + x.duration, 0);
   const total = items.reduce((a, x) => a + (x.price || 0), 0);
   if (date < now.key || date > addDays(now.key, s.booking_days)) return { error: "Ese día no está disponible para reservar." };
@@ -189,7 +302,7 @@ function planBooking(data, { service_ids, staff_id, date, start }, now = nowInSa
     .filter((st) => !staff_id || st.id === staff_id)
     .find((st) => isFree(data, st, date, start, start + duration));
   if (!staff) return { error: "Ese horario se acaba de ocupar. Elegí otro, por favor." };
-  return { staff, items, duration, total };
+  return { staff, items, duration, total, deposit: depositFor(s, total) };
 }
 
 /* ---------- clients ---------- */
@@ -231,7 +344,7 @@ async function resizeImage(file, max) {
 /* =========================================================
    Storage adapters. Both expose the same methods.
    ========================================================= */
-const TABLES = ["categories", "services", "staff", "clients", "appointments", "exceptions"];
+const TABLES = ["categories", "services", "staff", "clients", "appointments", "exceptions", "addons", "gallery"];
 
 function publicView(d, today) {
   return {
@@ -239,6 +352,8 @@ function publicView(d, today) {
     categories: d.categories,
     services: d.services.filter((s) => s.active),
     staff: d.staff.filter((s) => s.active),
+    addons: (d.addons || []).filter((a) => a.active),
+    gallery: (d.gallery || []).filter((g) => g.active),
     exceptions: d.exceptions.filter((e) => e.date >= today),
     busy: d.appointments.filter((a) => a.date >= today && !OFF.includes(a.status))
       .map(({ staff_id, date, start_min, end_min }) => ({ staff_id, date, start_min, end_min })),
@@ -293,7 +408,8 @@ const LocalDB = {
     const appt = {
       id: uid(), kind: "appointment", client_id: client.id, client_name: req.name.trim(), client_phone: phone,
       staff_id: plan.staff.id, date: req.date, start_min: req.start, end_min: req.start + plan.duration,
-      items: plan.items, total: plan.total, status: d.settings.auto_confirm ? "confirmed" : "pending",
+      items: plan.items, total: plan.total, deposit_due: plan.deposit || null, deposit: null, reminded_at: null,
+      status: d.settings.auto_confirm ? "confirmed" : "pending",
       notes: req.notes?.trim() || null, source: "web", created_at: new Date().toISOString(),
     };
     d.appointments.push(appt);
@@ -301,7 +417,7 @@ const LocalDB = {
     return appt;
   },
   async uploadImage(file) {
-    const blob = await resizeImage(file, 480);
+    const blob = await resizeImage(file, 600);
     return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
   },
   auth: {
@@ -322,15 +438,17 @@ function SupabaseDB(url, key) {
     mode: "supabase",
     async loadPublic() {
       const today = nowInSalon().key;
-      const [st, categories, services, staff, exceptions, busy] = await Promise.all([
+      const [st, categories, services, staff, addons, gallery, exceptions, busy] = await Promise.all([
         sb.from("settings").select("data").eq("id", 1).maybeSingle(),
         sb.from("categories").select("*").order("sort"),
         sb.from("services").select("*").eq("active", true).order("sort"),
         sb.from("staff").select("*").eq("active", true).order("sort"),
+        sb.from("addons").select("*").eq("active", true).order("sort"),
+        sb.from("gallery").select("*").eq("active", true).order("sort"),
         sb.from("exceptions").select("*").gte("date", today),
         sb.rpc("busy_times", { p_from: today, p_to: addDays(today, 92) }),
       ].map((p) => p.then(must)));
-      return { settings: { ...SEED.settings, ...st?.data }, categories, services, staff, exceptions, busy };
+      return { settings: { ...SEED.settings, ...st?.data }, categories, services, staff, addons, gallery, exceptions, busy };
     },
     async loadAll() {
       // Supabase answers at most 1000 rows per request, so read each table in pages
@@ -363,7 +481,7 @@ function SupabaseDB(url, key) {
         headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           p_services: r.service_ids, p_staff: r.staff_id || null, p_date: r.date, p_start: r.start,
-          p_name: r.name, p_phone: r.phone, p_notes: r.notes || null,
+          p_name: r.name, p_phone: r.phone, p_notes: r.notes || null, p_addons: r.addon_ids || [],
         }),
       }).then(async (res) => {
         const body = await res.json().catch(() => ({}));
@@ -371,9 +489,9 @@ function SupabaseDB(url, key) {
         return body;
       });
     },
-    async uploadImage(file) {
-      const blob = await resizeImage(file, 900);
-      const path = `services/${uid()}.webp`;
+    async uploadImage(file, folder = "services") {
+      const blob = await resizeImage(file, folder === "gallery" ? 1400 : 900);
+      const path = `${folder}/${uid()}.webp`;
       must(await sb.storage.from("media").upload(path, blob, { contentType: "image/webp", cacheControl: "31536000" }));
       return sb.storage.from("media").getPublicUrl(path).data.publicUrl;
     },

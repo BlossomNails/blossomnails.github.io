@@ -13,7 +13,7 @@ const A = {
 let E = null; // the appointment being edited
 
 const D = () => A.data;
-const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.name.localeCompare(b.name);
+const bySort = (a, b) => (a.sort ?? 0) - (b.sort ?? 0) || (a.name || "").localeCompare(b.name || "");
 const byTime = (a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min;
 const activeStaff = () => D().staff.filter((s) => s.active).sort(bySort);
 const multi = () => activeStaff().length > 1;
@@ -67,6 +67,9 @@ const P = {
   ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+  card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/>',
 };
 const ic = (n) => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
 const wa = '<svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg>';
@@ -77,13 +80,14 @@ const NAV = [
   { r: "agenda", label: "Agenda", ic: "calendar", tab: true },
   { r: "servicios", label: "Servicios", ic: "scissors", tab: true },
   { r: "clientas", label: "Clientas", ic: "users" },
+  { r: "galeria", label: "Galería", ic: "image" },
   { r: "horarios", label: "Horarios", ic: "clock" },
   { r: "especiales", label: "Días especiales", ic: "calx" },
   { r: "equipo", label: "Profesionales", ic: "user" },
   { r: "finanzas", label: "Control financiero", ic: "chart" },
   { r: "ajustes", label: "Ajustes", ic: "sliders" },
 ];
-const MORE = ["mas", "clientas", "clienta", "horarios", "especiales", "equipo", "finanzas", "ajustes"];
+const MORE = ["mas", "clientas", "clienta", "galeria", "horarios", "especiales", "equipo", "finanzas", "ajustes"];
 
 function renderNav() {
   const due = dueClients().length;
@@ -208,7 +212,8 @@ function apptCard(a, { date = false } = {}) {
   const block = a.kind === "block";
   const st = staffById(a.staff_id);
   const isNew = a.source === "web" && Date.now() - Date.parse(a.created_at) < 864e5;
-  const badge = a.status !== "confirmed" ? `<span class="badge b-${a.status}">${STATUS[a.status]}</span>` : isNew ? '<span class="badge b-new">Nueva</span>' : "";
+  const badge = (a.status !== "confirmed" ? `<span class="badge b-${a.status}">${STATUS[a.status]}</span>` : isNew ? '<span class="badge b-new">Nueva</span>' : "")
+    + (a.deposit > 0 ? '<span class="badge b-dep">Seña ✓</span>' : depositOpen(a) && !isPast(a) ? '<span class="badge b-dep-no">Sin seña</span>' : "");
   return `<button type="button" class="appt s-${a.status}${block ? " is-block" : ""}" data-act="appt-open" data-id="${a.id}">
     <span class="a-time">${date ? `<small class="a-date">${relDay(a.date)}</small>` : ""}<b>${hhmm(a.start_min)}</b><small>${hhmm(a.end_min)}</small></span>
     <span class="a-main"><b>${block ? ic("lock") : ""}${esc(apptTitle(a))}</b>
@@ -232,6 +237,16 @@ VIEWS.inicio = () => {
   const pending = appts.filter((a) => a.status === "pending" && !isPast(a)).sort(byTime);
   const next = appts.filter((a) => live(a) && a.status !== "pending" && !isPast(a)).sort(byTime).slice(0, 6);
   const due = dueClients();
+  const s = D().settings;
+  const tomorrow = addDays(now.key, 1);
+  const remind = appts.filter((a) => a.date === tomorrow && live(a)).sort(byTime);
+  // recent visits whose client hasn't been asked for a review yet, one per client
+  const since = addDays(now.key, -7);
+  const asked = new Set();
+  const reviews = appts.filter((a) => a.status === "confirmed" && isPast(a, now) && a.date >= since && a.client_id && a.client_phone)
+    .sort((a, b) => byTime(b, a))
+    .filter((a) => { const c = clientById(a.client_id); if (!c || c.review_requested_at || asked.has(c.id)) return false; asked.add(c.id); return true; });
+  const setup = [!s.deposit_enabled && "la seña", !s.review_url && "tu link de reseñas de Google"].filter(Boolean);
   return `
     <div class="hello">
       <h1>Hola, <em>${esc(D().settings.owner_name || "Mica")}</em></h1>
@@ -241,19 +256,43 @@ VIEWS.inicio = () => {
       <a class="stat" href="#/agenda" data-act="agenda-today">${ic("calendar")}<b>${today.length}</b><small>Citas hoy</small></a>
       <div class="stat">${ic("chart")}<b>${gs(sum(today.filter((a) => a.status === "confirmed"), (a) => a.total))}</b><small>Ingresos de hoy</small></div>
     </div>
+    ${setup.length ? `<a class="row-link setup" href="#/ajustes">${ic("sliders")}<span><b>Para terminar de configurar</b><small>Cargá ${setup.join(" y ")} en Ajustes.</small></span>${ic("right")}</a>` : ""}
     <a class="row-link" href="#/finanzas">${ic("chart")}<span><b>Control financiero</b><small>Este mes: ${gs(sum(month, (a) => a.total))} · ${month.length} cita${month.length === 1 ? "" : "s"}</small></span>${ic("right")}</a>
     ${pending.length ? section(`Por confirmar <span class="count">${pending.length}</span>`, `<div class="list">${pending.map((a) => apptCard(a, { date: true })).join("")}</div>`) : ""}
+    ${remind.length ? section(`Recordatorios para mañana <span class="count">${remind.filter((a) => !a.reminded_at).length || "✓"}</span>`,
+      `<p class="hint">Un toque y le llega el recordatorio por WhatsApp.</p><div class="list">${remind.map(remindRow).join("")}</div>`) : ""}
     ${section("Próximas citas", next.length ? `<div class="list">${next.map((a) => apptCard(a, { date: true })).join("")}</div>` : empty("Aún no hay citas próximas."), '<a class="more" href="#/agenda">Ver agenda</a>')}
     ${section(`Para volver a agendar${due.length ? ` <span class="count">${due.length}</span>` : ""}`,
       due.length ? `<p class="hint">Vinieron hace ${D().settings.reminder_days} días o más y no tienen turno.</p><div class="list">${due.slice(0, 5).map(dueRow).join("")}</div>`
         : `<p class="hint">Acá van a aparecer las clientas que vinieron hace ${D().settings.reminder_days} días o más y todavía no reservaron.</p>`,
       due.length > 5 ? '<a class="more" href="#/clientas" data-act="clients-due">Ver todas</a>' : "")}
+    ${reviews.length ? section(`Pedir reseña <span class="count">${reviews.length}</span>`, s.review_url
+      ? `<p class="hint">Vinieron esta semana. Una reseña en Google te ayuda a que te encuentren.</p><div class="list">${reviews.slice(0, 5).map(reviewRow).join("")}</div>`
+      : `<p class="hint">Hay ${reviews.length} clienta${reviews.length === 1 ? "" : "s"} que vinieron esta semana. Cargá tu link de reseñas de Google en <a href="#/ajustes">Ajustes</a> para pedirles una reseña con un toque.</p>`) : ""}
     <section class="share">
       <p><b>Tu enlace de reservas</b><small>Mandalo a tus clientas o ponelo en Instagram: reservan solas, sin llamarte.</small></p>
       <code>${esc(bookingUrl())}</code>
       <div class="row"><button class="btn btn-ghost" type="button" data-act="copy-link">${ic("copy")}Copiar enlace</button><a class="btn btn-ghost" href="./" target="_blank" rel="noopener">${ic("ext")}Abrir</a></div>
     </section>`;
 };
+
+function remindRow(a) {
+  const sent = !!a.reminded_at;
+  return `<div class="c-row${sent ? " sent" : ""}">
+    <button type="button" class="c-link" data-act="appt-open" data-id="${a.id}"><span class="r-time">${hhmm(a.start_min)}</span>
+      <span class="c-main"><b>${esc(a.client_name || "Sin nombre")}</b><small>${esc(itemsText(a))}${depositOpen(a) ? " · sin seña" : ""}</small></span></button>
+    ${a.client_phone ? `<a class="btn ${sent ? "btn-ghost" : "btn-wa"} sm" href="${waLink(apptReminderMsg(a), a.client_phone)}" target="_blank" rel="noopener" data-act="appt-remind" data-id="${a.id}">${sent ? "Enviado ✓" : wa + "Recordar"}</a>` : '<small class="muted">sin WhatsApp</small>'}
+  </div>`;
+}
+
+function reviewRow(a) {
+  const c = clientById(a.client_id);
+  return `<div class="c-row">
+    <a class="c-link" href="#/clienta/${c.id}"><span class="avatar">${esc(c.name.trim()[0] || "?")}</span>
+      <span class="c-main"><b>${esc(c.name)}</b><small>Vino ${relDay(a.date).toLowerCase()} · ${esc(itemsText(a))}</small></span></a>
+    <a class="btn btn-wa sm" href="${waLink(reviewMsg(c), c.phone || a.client_phone)}" target="_blank" rel="noopener" data-act="review-ask" data-id="${c.id}">${ic("star")}Pedir</a>
+  </div>`;
+}
 
 function dueRow(c) {
   const st = cstats(c);
@@ -368,13 +407,30 @@ AFTER.agenda = () => {
   if (A.agenda.mode === "dia" && first) $(".strip [aria-pressed='true']")?.scrollIntoView({ inline: "center", block: "nearest" });
 };
 
-/* ---- Appointment detail ---- */
+/* ---- messages ---- */
+const firstName = (n) => (n || "").trim().split(" ")[0];
+const fill = (tpl, vars) => String(tpl || "").replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+// a seña was asked for and hasn't been paid yet
+const depositOpen = (a) => a.deposit_due > 0 && a.deposit == null && live(a);
+
 function confirmMsg(a) {
   const when = `${DAYS[dowOf(a.date)].toLowerCase()} ${shortDate(a.date)} a las ${hhmm(a.start_min)} hs`;
-  const first = (a.client_name || "").split(" ")[0];
+  const first = firstName(a.client_name);
   if (a.status === "cancelled") return `¡Hola ${first}! Tu turno del ${when} quedó cancelado. Cuando quieras, reservás de nuevo acá: ${bookingUrl()} 🌸`;
-  return `¡Hola ${first}! 🌸 Te confirmo tu turno en Blossom el ${when}${a.items.length ? ` (${itemsText(a).replace(/ · /g, ", ")})` : ""}. ¡Te espero!`;
+  const s = D().settings;
+  const pay = depositOpen(a) && s.payment_info
+    ? `\n\nPara dejarlo confirmado te pido una seña de ${gs(a.deposit_due)}:\n${s.payment_info}\nMandame el comprobante por acá. ¡Gracias!` : "";
+  return `¡Hola ${first}! 🌸 Te confirmo tu turno en Blossom el ${when}${a.items.length ? ` (${itemsText(a).replace(/ · /g, ", ")})` : ""}. ¡Te espero!${pay}`;
 }
+function apptReminderMsg(a) {
+  return fill(D().settings.appt_reminder_text, {
+    nombre: firstName(a.client_name), dia: `${DAYS[dowOf(a.date)].toLowerCase()} ${shortDate(a.date)}`,
+    hora: `${hhmm(a.start_min)} hs`, servicios: itemsText(a).replace(/ · /g, ", ") || "tu turno",
+  });
+}
+const reviewMsg = (c) => fill(D().settings.review_text, { nombre: firstName(c.name), link: D().settings.review_url });
+
+/* ---- Appointment detail ---- */
 
 function openDetail(id) {
   const a = D().appointments.find((x) => x.id === id);
@@ -390,12 +446,22 @@ function openDetail(id) {
         <ul class="det-items">${a.items.map((i) => `<li><span>${esc(i.name)}</span><small>${i.duration ? dur(i.duration) : ""}</small><b>${i.price != null ? gs(i.price) : "—"}</b></li>`).join("")}
           <li class="tot"><span>Total</span><small></small><b>${gs(a.total)}</b></li></ul>
         ${a.client_phone ? `<p class="det-phone">${ic("user")}${fmtPhone(a.client_phone)}</p>` : ""}
-        ${a.notes ? `<p class="det-notes">${esc(a.notes)}</p>` : ""}`}
+        ${a.notes ? `<p class="det-notes">${esc(a.notes)}</p>` : ""}
+        <div class="dep">
+          ${ic("card")}
+          ${a.deposit != null
+            ? `<span>Seña cobrada: <b>${gs(a.deposit)}</b></span><button class="btn btn-ghost sm" type="button" data-act="dep-clear">Quitar</button>`
+            : `<span>${a.deposit_due ? `Seña: <b>${gs(a.deposit_due)}</b> · pendiente` : "Seña"}</span>
+              <input class="field sm" id="dep-amount" inputmode="numeric" data-money value="${fmtNum(a.deposit_due || (D().settings.deposit_type === "fixed" && D().settings.deposit_value) || null)}" placeholder="Monto" aria-label="Monto de la seña">
+              <button class="btn btn-rose sm" type="button" data-act="dep-paid">Cobrada</button>`}
+        </div>`}
     </div>
     <div class="det-actions">
       ${!block && a.client_phone ? `<a class="btn btn-wa" href="${waLink(confirmMsg(a), a.client_phone)}" target="_blank" rel="noopener">${wa}WhatsApp</a>` : ""}
       <button class="btn btn-ghost" type="button" data-act="appt-edit" data-id="${a.id}">${ic("edit")}Editar</button>
       ${a.client_id ? `<a class="btn btn-ghost" href="#/clienta/${a.client_id}" data-act="nav">${ic("user")}Ficha</a>` : ""}
+      ${!block && a.client_phone && live(a) && !isPast(a) ? `<a class="btn btn-ghost" href="${waLink(apptReminderMsg(a), a.client_phone)}" target="_blank" rel="noopener" data-act="appt-remind" data-id="${a.id}">${ic("bell")}${a.reminded_at ? "Recordado ✓" : "Recordatorio"}</a>` : ""}
+      ${!block && a.client_phone && a.client_id && a.status === "confirmed" && isPast(a) && D().settings.review_url ? `<a class="btn btn-ghost" href="${waLink(reviewMsg({ name: a.client_name }), a.client_phone)}" target="_blank" rel="noopener" data-act="review-ask" data-id="${a.client_id}">${ic("star")}${clientById(a.client_id)?.review_requested_at ? "Reseña pedida ✓" : "Pedir reseña"}</a>` : ""}
     </div>
     ${block ? "" : `<div class="det-status">
       ${a.status === "pending" ? `<button class="btn btn-rose" type="button" data-act="appt-status" data-s="confirmed">Confirmar</button>` : ""}
@@ -508,9 +574,11 @@ function paintPicker() {
   const q = $("#e-q").value.trim().toLowerCase();
   const cats = [...D().categories].sort(bySort);
   const svcs = [...D().services].sort(bySort).filter((s) => !q || s.name.toLowerCase().includes(q));
-  const groups = [...cats.map((c) => [c.name, svcs.filter((s) => s.category_id === c.id)]), ["Otros", svcs.filter((s) => !cats.some((c) => c.id === s.category_id))]];
+  const adds = [...(D().addons || [])].sort(bySort).filter((a) => !q || a.name.toLowerCase().includes(q));
+  const groups = [...cats.map((c) => [c.name, svcs.filter((s) => s.category_id === c.id)]), ["Otros", svcs.filter((s) => !cats.some((c) => c.id === s.category_id))],
+    ["Adicionales", adds.map((a) => ({ ...a, isAddon: true }))]];
   $("#e-plist").innerHTML = groups.filter(([, l]) => l.length).map(([name, l]) => `<p class="picker-cat">${esc(name)}</p>${l.map((s) =>
-    `<button type="button" data-act="e-pick" data-id="${s.id}"><span>${esc(s.name)}${s.active ? "" : " <em>(oculto)</em>"}</span><small>${s.price != null ? gs(s.price) : "Consultar"}${s.duration ? " · " + dur(s.duration) : ""}</small></button>`).join("")}`).join("")
+    `<button type="button" data-act="${s.isAddon ? "e-pick-addon" : "e-pick"}" data-id="${s.id}"><span>${esc(s.name)}${s.active ? "" : " <em>(oculto)</em>"}</span><small>${s.price != null ? gs(s.price) : "Consultar"}${s.duration ? " · " + dur(s.duration) : ""}</small></button>`).join("")}`).join("")
     || '<p class="hint">No hay servicios con ese nombre. Usá "Otro" para escribirlo.</p>';
 }
 
@@ -518,7 +586,8 @@ async function saveEditor() {
   const name = E.name.trim();
   const phone = normPhone(E.phone);
   const lines = E.lines.filter((l) => l.name.trim() || l.service_id).map((l) => ({
-    service_id: l.service_id || null, name: l.name.trim() || "Servicio", price: l.price ?? null, duration: l.duration || 0,
+    service_id: l.service_id || null, ...(l.addon_id ? { addon_id: l.addon_id } : {}),
+    name: l.name.trim() || "Servicio", price: l.price ?? null, duration: l.duration || 0,
   }));
   const duration = sum(lines, (l) => l.duration);
   if (!name) return formError("Escribí el nombre de la clienta.");
@@ -542,6 +611,7 @@ async function saveEditor() {
       id: E.id || uid(), kind: "appointment", client_id: client.id, client_name: name, client_phone: phone || client.phone || null,
       staff_id: E.staff_id, date: E.date, start_min: E.start, end_min: E.start + duration,
       items: lines, total: sum(lines, (l) => l.price), status: E.status, notes: E.notes.trim() || null,
+      deposit_due: prev?.deposit_due ?? null, deposit: prev?.deposit ?? null, reminded_at: prev?.reminded_at ?? null,
       source: prev?.source || "panel", created_at: prev?.created_at || new Date().toISOString(),
     });
     render();
@@ -591,7 +661,8 @@ VIEWS.servicios = () => {
   return `
     <div class="page-head"><h1>Servicios</h1><button class="btn btn-rose sm" type="button" data-act="svc-new">${ic("plus")}Nuevo</button></div>
     <p class="hint">Lo que está activo aparece en la página de reservas con su precio y duración. Sin precio se muestra "Consultar".</p>
-    <button class="btn btn-ghost sm" type="button" data-act="cats">${ic("sliders")}Categorías</button>
+    <div class="row"><button class="btn btn-ghost sm" type="button" data-act="cats">${ic("sliders")}Categorías</button>
+      <button class="btn btn-ghost sm" type="button" data-act="addons">${ic("plus")}Adicionales <small class="muted">${(D().addons || []).length}</small></button></div>
     ${groups.filter(([c, l]) => l.length || c.id).map(([c, list]) => `
       <h2 class="grp">${esc(c.name)} <small>${list.length}</small></h2>
       <div class="list">${list.length ? list.map((s, i) => `
@@ -681,6 +752,91 @@ async function move(table, id, delta, siblings) {
   await run(() => Promise.all(list.map((x, k) => (x.sort === base + k ? null : save(table, { ...x, sort: base + k })))));
 }
 
+/* ---- Adicionales (francesitas, largor...) ---- */
+function openAddons() {
+  const cats = Object.fromEntries(D().categories.map((c) => [c.id, c.name]));
+  const list = [...(D().addons || [])].sort(bySort);
+  openDlg("addons", "Adicionales", `
+    <p class="hint">Extras que la clienta puede sumar a un servicio al reservar. Se suman al precio y al tiempo.</p>
+    <div class="list">${list.length ? list.map((a) => `
+      <button type="button" class="c-row${a.active ? "" : " off"}" data-act="addon-edit" data-id="${a.id}">
+        <span class="c-main"><b>${esc(a.name)}</b>
+          <small>+ ${gs(a.price)}${a.duration ? ` · ${dur(a.duration)}` : ""} · ${a.category_ids ? a.category_ids.map((c) => esc(cats[c] || c)).join(", ") : "todos los servicios"}${a.active ? "" : " · oculto"}</small></span>
+        ${ic("right")}</button>`).join("") : empty("Todavía no hay adicionales.")}</div>
+    <div class="dlg-foot"><button class="btn btn-rose wide" type="button" data-act="addon-new">${ic("plus")}Nuevo adicional</button></div>`);
+}
+function openAddon(a = null) {
+  const cats = [...D().categories].sort(bySort);
+  openDlg("addon", a ? "Editar adicional" : "Nuevo adicional", `
+    <form id="addon-form" data-id="${a?.id || ""}">
+      <label><span class="lbl">Nombre</span><input class="field" name="name" value="${esc(a?.name || "")}" required maxlength="80" placeholder="Ej.: Francesitas" ${a ? "" : "autofocus"}></label>
+      <div class="two">
+        <label><span class="lbl">Precio (Gs.)</span><input class="field" name="price" inputmode="numeric" data-money value="${fmtNum(a?.price ?? null)}" placeholder="0"></label>
+        <label><span class="lbl">Tiempo extra (min)</span><input class="field" name="duration" inputmode="numeric" value="${a?.duration || ""}" placeholder="0"></label>
+      </div>
+      <span class="lbl">Se ofrece con</span>
+      <div class="checks">${cats.map((c) => `<label class="check"><input type="checkbox" name="cat" value="${c.id}"${a?.category_ids?.includes(c.id) ? " checked" : ""}> ${esc(c.name)}</label>`).join("")}</div>
+      <p class="hint">Si no marcás ninguna, se ofrece con todos los servicios.</p>
+      <label class="check"><input type="checkbox" name="active"${!a || a.active ? " checked" : ""}> Mostrar en la página de reservas</label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dlg-foot"><button class="btn btn-rose wide" type="submit">Guardar</button></div>
+      ${a ? `<button class="link-danger" type="button" data-act="addon-delete" data-id="${a.id}">${ic("trash")}Eliminar adicional</button>` : ""}
+    </form>`);
+}
+async function saveAddon(form) {
+  const f = new FormData(form);
+  const name = f.get("name").trim();
+  if (!name) return formError("Poné un nombre.");
+  const prev = (D().addons || []).find((x) => x.id === form.dataset.id);
+  const cats = f.getAll("cat");
+  await run(async () => {
+    await save("addons", {
+      id: prev?.id || uid(), name, price: num(f.get("price")) || 0, duration: num(f.get("duration")) || 0,
+      category_ids: cats.length ? cats : null, active: f.get("active") === "on",
+      sort: prev?.sort ?? Math.max(0, ...(D().addons || []).map((x) => x.sort ?? 0)) + 1,
+    });
+    openAddons(); render();
+  }, "Adicional guardado ✓");
+}
+
+/* ---- Galería ---- */
+const byOrder = (a, b) => (a.sort ?? 0) - (b.sort ?? 0);
+VIEWS.galeria = () => {
+  const list = [...(D().gallery || [])].sort(byOrder);
+  return `
+    <div class="page-head"><h1>Galería</h1>
+      <label class="btn btn-rose sm">${ic("plus")}Subir fotos<input type="file" accept="image/*" multiple id="gal-file" hidden></label></div>
+    <p class="hint">Son las fotos de «Trabajos recientes» en la página del salón. Las nuevas aparecen primero; ordenalas con las flechas.</p>
+    ${list.length ? `<div class="gal-grid">${list.map((g, i) => `
+      <figure class="gal-item${g.active ? "" : " off"}">
+        <img src="${esc(g.image)}" alt="${esc(g.caption || "")}" loading="lazy">
+        <input class="field sm" value="${esc(g.caption || "")}" placeholder="¿Qué es?" maxlength="60" data-change="gal-caption" data-id="${g.id}" aria-label="Descripción de la foto">
+        <div class="gal-ctl">
+          <button type="button" class="icon-btn xs" data-act="gal-move" data-id="${g.id}" data-v="-1" aria-label="Mover antes"${i ? "" : " disabled"}>${ic("left")}</button>
+          <button type="button" class="icon-btn xs" data-act="gal-move" data-id="${g.id}" data-v="1" aria-label="Mover después"${i < list.length - 1 ? "" : " disabled"}>${ic("right")}</button>
+          <label class="switch" title="Mostrar en la página"><input type="checkbox" data-change="gal-active" data-id="${g.id}"${g.active ? " checked" : ""} aria-label="Mostrar en la página"><span></span></label>
+          <button type="button" class="icon-btn xs danger" data-act="gal-delete" data-id="${g.id}" aria-label="Eliminar foto">${ic("trash")}</button>
+        </div>
+      </figure>`).join("")}</div>` : empty("Todavía no hay fotos. Subí las primeras.")}`;
+};
+async function uploadGallery(files) {
+  const list = [...files].filter((f) => f.type.startsWith("image/"));
+  let first = Math.min(0, ...(D().gallery || []).map((g) => g.sort ?? 0));
+  let done = 0;
+  for (let i = 0; i < list.length; i++) {
+    toast(`Subiendo ${i + 1} de ${list.length}…`, 60000);
+    const ok = await run(async () => {
+      const image = await A.db.uploadImage(list[i], "gallery");
+      await save("gallery", { id: uid(), image, caption: null, active: true, sort: --first });
+      return true;
+    });
+    if (!ok) break; // run() already showed the error
+    done++;
+  }
+  if (done === list.length) toast(done === 1 ? "Foto subida ✓" : `${done} fotos subidas ✓`);
+  render();
+}
+
 /* ---- Clientas ---- */
 VIEWS.clientas = () => {
   const due = dueClients().length;
@@ -721,6 +877,7 @@ VIEWS.clienta = (id) => {
       ${c.phone ? `<a class="btn btn-wa sm" href="${waLink(`¡Hola ${c.name.split(" ")[0]}! 🌸`, c.phone)}" target="_blank" rel="noopener">${wa}WhatsApp</a>` : ""}
       <button class="btn btn-rose sm" type="button" data-act="client-book" data-id="${c.id}">${ic("plus")}Agendar cita</button>
       <button class="btn btn-ghost sm" type="button" data-act="client-edit" data-id="${c.id}">${ic("edit")}Editar</button>
+      ${c.phone && st.visits && D().settings.review_url ? `<a class="btn btn-ghost sm" href="${waLink(reviewMsg(c), c.phone)}" target="_blank" rel="noopener" data-act="review-ask" data-id="${c.id}">${ic("star")}${c.review_requested_at ? `Reseña pedida el ${shortDate(c.review_requested_at)}` : "Pedir reseña"}</a>` : ""}
     </div>
     ${st.due ? `<div class="remind">
       <p>${ic("bell")}<span><b>Hace ${st.since} días de su última visita</b><small>Mandale un mensaje para que vuelva a reservar.</small></span></p>
@@ -975,7 +1132,11 @@ VIEWS.finanzas = () => {
   const appts = D().appointments.filter((a) => a.kind !== "block" && a.date.startsWith(A.month));
   const done = appts.filter((a) => a.status === "confirmed" && isPast(a, now));
   const ahead = appts.filter((a) => live(a) && !isPast(a, now));
-  const income = sum(done, (a) => a.total);
+  // señas: money already received; the ones of cancelled or missed turns stay as income
+  const withDep = appts.filter((a) => a.deposit > 0);
+  const kept = withDep.filter((a) => OFF.includes(a.status));
+  const depAhead = withDep.filter((a) => live(a) && !isPast(a, now));
+  const income = sum(done, (a) => a.total) + sum(kept, (a) => a.deposit);
   const people = new Set(done.map((a) => a.client_id || a.client_name)).size;
   const tally = (key, val) => {
     const map = new Map();
@@ -995,12 +1156,13 @@ VIEWS.finanzas = () => {
       <button class="icon-btn sm" type="button" data-act="month" data-v="1" aria-label="Mes siguiente">${ic("right")}</button>
     </div>
     <div class="stats">
-      <div class="stat big"><small>Ingresos</small><b>${gs(income)}</b><small>${done.length} cita${done.length === 1 ? "" : "s"} realizada${done.length === 1 ? "" : "s"}</small></div>
+      <div class="stat big"><small>Ingresos</small><b>${gs(income)}</b><small>${done.length} cita${done.length === 1 ? "" : "s"} realizada${done.length === 1 ? "" : "s"}${kept.length ? ` + ${kept.length} seña${kept.length === 1 ? "" : "s"} que quedó` : ""}</small></div>
+      <div class="stat"><small>Señas cobradas</small><b>${gs(sum(withDep, (a) => a.deposit))}</b><small>${gs(sum(depAhead, (a) => a.deposit))} de turnos que vienen</small></div>
       <div class="stat"><small>Agendado</small><b>${gs(sum(ahead, (a) => a.total))}</b><small>${ahead.length} por venir</small></div>
       <div class="stat"><small>Ticket promedio</small><b>${gs(done.length ? income / done.length : 0)}</b><small>${people} clienta${people === 1 ? "" : "s"}</small></div>
       <div class="stat"><small>Canceladas · no vino</small><b>${appts.filter((a) => a.status === "cancelled").length} · ${appts.filter((a) => a.status === "no_show").length}</b><small>en el mes</small></div>
     </div>
-    <p class="hint">Cuenta las citas confirmadas que ya pasaron, con el precio que quedó cargado en cada una.</p>
+    <p class="hint">Ingresos: las citas confirmadas que ya pasaron, con el precio cargado en cada una, más las señas de turnos cancelados o a los que no vino.</p>
     ${byDay.length ? section("Por día", `<div class="bars">${byDay.map((d) => `<div class="bar"><span>${DAYS_SHORT[dowOf(d.label)]} ${shortDate(d.label)}</span><i style="--w:${(d.total / max) * 100}%"></i><b>${gs(d.total)}</b></div>`).join("")}</div>`) : ""}
     ${bySvc.length ? section("Por servicio", table(bySvc)) : empty("Todavía no hay ingresos este mes.")}
     ${multi() && byStaff.length ? section("Por profesional", table(byStaff)) : ""}`;
@@ -1026,6 +1188,26 @@ VIEWS.ajustes = () => {
         <p class="hint">{nombre}, {dias} y {link} se reemplazan solos por el nombre de la clienta, los días y el enlace de reservas.</p>
         ${"Notification" in window ? `<button class="btn btn-ghost sm" type="button" data-act="notify">${ic("bell")}${Notification.permission === "granted" ? "Avisos activados en este dispositivo" : "Avisarme de reservas nuevas en este dispositivo"}</button>
           <p class="hint">Te avisa mientras el panel esté abierto (también en segundo plano).</p>` : ""}
+      </div>`)}
+      ${section("Seña", `<div class="card-ed">
+        <label class="check"><input type="checkbox" name="deposit_enabled"${s.deposit_enabled ? " checked" : ""}> Pedir seña para confirmar las reservas de la web</label>
+        <div class="two">
+          <label><span class="lbl">Tipo</span><select class="field" name="deposit_type">
+            <option value="fixed"${s.deposit_type !== "percent" ? " selected" : ""}>Monto fijo (Gs.)</option>
+            <option value="percent"${s.deposit_type === "percent" ? " selected" : ""}>Porcentaje del total</option></select></label>
+          <label><span class="lbl">Monto o %</span><input class="field" name="deposit_value" inputmode="numeric" value="${s.deposit_type === "percent" ? s.deposit_value || "" : fmtNum(s.deposit_value || null)}" placeholder="Ej.: 50.000 o 30"></label>
+        </div>
+        <label><span class="lbl">Datos para transferir</span><textarea class="field" name="payment_info" rows="4" placeholder="Banco, alias, titular…">${esc(s.payment_info)}</textarea></label>
+        <p class="hint">La clienta ve el monto al reservar y estos datos al terminar. También van en tu mensaje de confirmación mientras la seña esté pendiente.</p>
+      </div>`)}
+      ${section("Recordatorio del turno", `<div class="card-ed">
+        <label><span class="lbl">Mensaje para el día anterior</span><textarea class="field" name="appt_reminder_text" rows="3">${esc(s.appt_reminder_text)}</textarea></label>
+        <p class="hint">{nombre}, {dia}, {hora} y {servicios} se completan solos. En Inicio aparece «Recordatorios para mañana».</p>
+      </div>`)}
+      ${section("Reseñas en Google", `<div class="card-ed">
+        <label><span class="lbl">Tu link para dejar reseña</span><input class="field" name="review_url" type="url" value="${esc(s.review_url)}" placeholder="https://g.page/r/…/review"></label>
+        <label><span class="lbl">Mensaje</span><textarea class="field" name="review_text" rows="3">${esc(s.review_text)}</textarea></label>
+        <p class="hint">El link sale de tu Perfil de Empresa de Google: en Google Maps buscá tu negocio, tocá «Pedir reseñas» y copiá el enlace. {nombre} y {link} se completan solos.</p>
       </div>`)}
       <p class="form-error" role="alert" hidden></p>
       <div class="sticky-foot"><button class="btn btn-rose wide" type="submit">Guardar ajustes</button></div>
@@ -1087,6 +1269,11 @@ const ACT = {
     E.lines.push({ service_id: s.id, name: s.name, price: s.price, duration: s.duration || D().settings.default_duration });
     $("#e-picker").hidden = true; paintLines(); paintEditorMeta();
   },
+  "e-pick-addon": (el) => {
+    const a = D().addons.find((x) => x.id === el.dataset.id);
+    E.lines.push({ service_id: null, addon_id: a.id, name: a.name, price: a.price, duration: a.duration || 0 });
+    $("#e-picker").hidden = true; paintLines(); paintEditorMeta();
+  },
   "e-custom": () => { E.lines.push({ service_id: null, name: "", price: null, duration: 30 }); paintLines(); paintEditorMeta(); $$("#e-lines .l-name").at(-1).focus(); },
   "e-rm": (el) => { E.lines.splice(+el.closest(".line").dataset.i, 1); paintLines(); paintEditorMeta(); },
   "e-time": (el) => { E.start = +el.dataset.v; $('[data-f="start"]').value = hhmm(E.start); paintEditorMeta(); },
@@ -1109,6 +1296,37 @@ const ACT = {
     run(async () => { await remove("services", el.dataset.id); closeDlg(); render(); }, "Servicio eliminado");
   },
   cats: () => openCategories(),
+  addons: () => openAddons(),
+  "addon-new": () => openAddon(),
+  "addon-edit": (el) => openAddon(D().addons.find((x) => x.id === el.dataset.id)),
+  "addon-delete": (el) => {
+    if (!confirm("¿Eliminar este adicional? Las citas que ya lo tienen no cambian.")) return;
+    run(async () => { await remove("addons", el.dataset.id); openAddons(); render(); }, "Adicional eliminado");
+  },
+  // opening WhatsApp marks the reminder or the review request as sent
+  "appt-remind": (el) => {
+    const a = D().appointments.find((x) => x.id === el.dataset.id);
+    run(async () => { await save("appointments", { ...a, reminded_at: new Date().toISOString() }); render(); if (A.dlg === "detail") openDetail(a.id); });
+  },
+  "review-ask": (el) => {
+    const c = clientById(el.dataset.id);
+    if (c) run(async () => { await save("clients", { ...c, review_requested_at: nowInSalon().key }); render(); });
+  },
+  "dep-paid": () => {
+    const a = D().appointments.find((x) => x.id === $(".det", $("#dlg")).dataset.id);
+    const amount = num($("#dep-amount").value) || a.deposit_due;
+    if (!amount) return toast("Poné el monto de la seña.");
+    run(async () => { await save("appointments", { ...a, deposit: amount }); render(); openDetail(a.id); }, "Seña registrada ✓");
+  },
+  "dep-clear": () => {
+    const a = D().appointments.find((x) => x.id === $(".det", $("#dlg")).dataset.id);
+    run(async () => { await save("appointments", { ...a, deposit: null }); render(); openDetail(a.id); });
+  },
+  "gal-move": (el) => move("gallery", el.dataset.id, +el.dataset.v, [...D().gallery].sort(byOrder)).then(render),
+  "gal-delete": (el) => {
+    if (!confirm("¿Sacar esta foto de la galería?")) return;
+    run(async () => { await remove("gallery", el.dataset.id); render(); }, "Foto eliminada");
+  },
   "cat-move": (el) => move("categories", el.dataset.id, +el.dataset.v, [...D().categories]).then(() => { openCategories(); render(); }),
   "cat-delete": (el) => {
     if (D().services.some((s) => s.category_id === el.dataset.id)) return toast("Primero pasá sus servicios a otra categoría.", 3500);
@@ -1172,6 +1390,14 @@ const CHANGE = {
   "agenda-staff": (el) => { A.agenda.staff = el.value; render(); },
   "agenda-date": (el) => { if (el.value) { A.agenda.day = el.value; render(); } },
   "svc-active": (el) => { const s = svcById(el.dataset.id); run(async () => { await save("services", { ...s, active: el.checked }); render(); }, el.checked ? "Visible en la página ✓" : "Oculto de la página"); },
+  "gal-caption": (el) => {
+    const g = D().gallery.find((x) => x.id === el.dataset.id);
+    run(() => save("gallery", { ...g, caption: el.value.trim() || null }), "Guardado ✓");
+  },
+  "gal-active": (el) => {
+    const g = D().gallery.find((x) => x.id === el.dataset.id);
+    run(async () => { await save("gallery", { ...g, active: el.checked }); render(); }, el.checked ? "Visible en la página ✓" : "Oculta de la página");
+  },
   "cat-name": (el) => {
     const c = D().categories.find((x) => x.id === el.dataset.id);
     const name = el.value.trim();
@@ -1187,6 +1413,7 @@ document.addEventListener("change", (e) => {
   if (t.dataset.h === "pause" || t.name === "pause") $(".pause", t.closest(".day-body, .sp-hours")).hidden = !t.checked;
   if (t.name === "type") $(".sp-hours").hidden = t.value !== "hours";
   if (t.dataset.toggle) $(t.dataset.toggle).hidden = t.checked === (t.name === "all");
+  if (t.id === "gal-file" && t.files.length) { uploadGallery(t.files); return; }
   if (t.id === "svc-file" && t.files[0]) {
     $("#svc-photo").innerHTML = '<span class="muted small">Subiendo…</span>';
     run(async () => { A.svcImage = await A.db.uploadImage(t.files[0]); }).then(() => {
@@ -1225,6 +1452,7 @@ document.addEventListener("submit", (e) => {
   if (form.id === "client-form") return saveClient(form);
   if (form.id === "special-form") return saveSpecial(form);
   if (form.id === "staff-form") return saveStaff(form);
+  if (form.id === "addon-form") return saveAddon(form);
   if (form.id === "cat-form") {
     const name = new FormData(form).get("name").trim();
     if (!name) return;
@@ -1246,10 +1474,20 @@ document.addEventListener("submit", (e) => {
     const f = new FormData(form);
     const phone = normPhone(f.get("whatsapp"));
     if (phone.length < 8) return formError("Revisá el WhatsApp del salón.");
+    const depType = f.get("deposit_type") === "percent" ? "percent" : "fixed";
+    const depValue = num(f.get("deposit_value")) || 0;
+    const depOn = f.get("deposit_enabled") === "on";
+    if (depOn && !depValue) return formError("Poné el monto de la seña.");
+    if (depType === "percent" && depValue > 100) return formError("El porcentaje de la seña tiene que ser hasta 100.");
+    const reviewUrl = f.get("review_url").trim();
+    if (reviewUrl && !/^https?:\/\//.test(reviewUrl)) return formError("El link de reseñas tiene que empezar con https://");
     return run(async () => {
       await saveSettings({
         business_name: f.get("business_name").trim() || SEED.settings.business_name, owner_name: f.get("owner_name").trim(),
         whatsapp: phone, reminder_days: +f.get("reminder_days"), reminder_text: f.get("reminder_text").trim() || SEED.settings.reminder_text,
+        deposit_enabled: depOn, deposit_type: depType, deposit_value: depValue, payment_info: f.get("payment_info").trim(),
+        appt_reminder_text: f.get("appt_reminder_text").trim() || SEED.settings.appt_reminder_text,
+        review_url: reviewUrl, review_text: f.get("review_text").trim() || SEED.settings.review_text,
       });
       render();
     }, "Ajustes guardados ✓");

@@ -625,3 +625,16 @@ textarea.field { resize: vertical; min-height: 64px; }
 .map-card span { color: var(--muted); font-size: 14px; }
 .map-card small { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .map-card-links { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+
+/* add-ons and seña */
+.pill.addon { flex: 0 1 auto; max-width: 100%; white-space: normal; text-align: left; }
+.pill.addon small { font-weight: 600; color: var(--accent); }
+.pill.addon[aria-pressed="true"] small { color: var(--on-strong-muted); }
+.deposit-note, .pay-box {
+  display: grid; gap: 2px; margin: 14px 0 0; padding: 12px 14px; border-radius: 16px; text-align: left;
+  background: var(--blush); box-shadow: inset 0 0 0 1px var(--blush-deep); font-size: 14px;
+}
+.deposit-note small, .pay-box small { color: var(--muted); font-size: 12.5px; }
+.pay-box { margin: 12px 0 14px; gap: 6px; }
+.pay-box p { margin: 0; font-variant-numeric: tabular-nums; }
+.pay-box .sm-copy { justify-self: start; min-height: 36px; font-size: 13px; padding: 0 1em; }

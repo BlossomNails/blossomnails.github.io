@@ -65,6 +65,30 @@ create table if not exists public.appointments (
 );
 create index if not exists appointments_date_idx on public.appointments (date);
 create index if not exists appointments_client_idx on public.appointments (client_id);
+alter table public.appointments add column if not exists deposit_due int;         -- seña asked for (guaraníes)
+alter table public.appointments add column if not exists deposit int;             -- seña received; null = not yet
+alter table public.appointments add column if not exists reminded_at timestamptz; -- "tu turno es mañana" sent
+alter table public.clients add column if not exists review_requested_at date;     -- Google review asked
+
+-- extras the client can add to a service (francesitas, largor 3, ...)
+create table if not exists public.addons (
+  id text primary key default gen_random_uuid()::text,
+  name text not null,
+  price int not null default 0 check (price >= 0),
+  duration int not null default 0 check (duration >= 0),
+  category_ids text[],  -- null = offered with every service
+  active boolean not null default true,
+  sort int not null default 0
+);
+
+-- photos of her work on the salon page
+create table if not exists public.gallery (
+  id text primary key default gen_random_uuid()::text,
+  image text not null,
+  caption text,
+  active boolean not null default true,
+  sort int not null default 0
+);
 
 -- special days: closed, or different hours (blocks = [] means closed)
 create table if not exists public.exceptions (
@@ -95,6 +119,8 @@ alter table public.clients enable row level security;
 alter table public.appointments enable row level security;
 alter table public.exceptions enable row level security;
 alter table public.admins enable row level security;
+alter table public.addons enable row level security;
+alter table public.gallery enable row level security;
 
 -- the booking page can read the catalogue, hours and special days; only Mica can change them
 drop policy if exists "read settings" on public.settings;
@@ -117,6 +143,16 @@ create policy "read staff" on public.staff for select using (active or public.is
 drop policy if exists "admin staff" on public.staff;
 create policy "admin staff" on public.staff for all using (public.is_admin()) with check (public.is_admin());
 
+drop policy if exists "read addons" on public.addons;
+create policy "read addons" on public.addons for select using (active or public.is_admin());
+drop policy if exists "admin addons" on public.addons;
+create policy "admin addons" on public.addons for all using (public.is_admin()) with check (public.is_admin());
+
+drop policy if exists "read gallery" on public.gallery;
+create policy "read gallery" on public.gallery for select using (active or public.is_admin());
+drop policy if exists "admin gallery" on public.gallery;
+create policy "admin gallery" on public.gallery for all using (public.is_admin()) with check (public.is_admin());
+
 drop policy if exists "read exceptions" on public.exceptions;
 create policy "read exceptions" on public.exceptions for select using (true);
 drop policy if exists "admin exceptions" on public.exceptions;
@@ -131,9 +167,10 @@ create policy "admin appointments" on public.appointments for all using (public.
 drop policy if exists "own admin row" on public.admins;
 create policy "own admin row" on public.admins for select using (user_id = auth.uid());
 
-grant select on public.settings, public.categories, public.services, public.staff, public.exceptions to anon, authenticated;
+grant select on public.settings, public.categories, public.services, public.staff, public.exceptions,
+  public.addons, public.gallery to anon, authenticated;
 grant all on public.settings, public.categories, public.services, public.staff, public.exceptions,
-  public.clients, public.appointments to authenticated;
+  public.clients, public.appointments, public.addons, public.gallery to authenticated;
 grant select on public.admins to authenticated;
 
 -- ============ booking page functions ============
@@ -151,9 +188,10 @@ $$;
 -- A web booking. Prices and durations come from the catalogue, never from the visitor,
 -- and the time is checked again here so two people can't take the same slot.
 -- Mirrors planBooking() in core.js.
+drop function if exists public.book(text[], text, date, int, text, text, text);
 create or replace function public.book(
   p_services text[], p_staff text, p_date date, p_start int,
-  p_name text, p_phone text, p_notes text default null
+  p_name text, p_phone text, p_notes text default null, p_addons text[] default '{}'
 ) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -165,6 +203,7 @@ declare
   v_phone text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
   v_name text := trim(coalesce(p_name, ''));
   v_items jsonb; v_total int; v_duration int; v_found int; v_end int;
+  v_cats text[]; v_extra jsonb; v_extra_total int; v_extra_min int; v_deposit int := 0;
   v_staff record; v_blocks jsonb; v_chosen text; v_client uuid; v_id uuid; v_status text;
 begin
   if v_phone ~ '^0\d{9}$' then v_phone := '595' || substr(v_phone, 2);
@@ -174,6 +213,7 @@ begin
   if length(v_phone) < 8 or length(v_phone) > 15 then raise exception 'Revisá tu número de WhatsApp.'; end if;
   if length(coalesce(p_notes, '')) > 500 then raise exception 'La nota es muy larga.'; end if;
   if coalesce(array_length(p_services, 1), 0) not between 1 and 10 then raise exception 'Elegí al menos un servicio.'; end if;
+  if coalesce(array_length(p_addons, 1), 0) > 10 then raise exception 'Son demasiados adicionales.'; end if;
   if p_start is null or p_start not between 0 and 1439 then raise exception 'Elegí un horario.'; end if;
 
   select jsonb_agg(jsonb_build_object('service_id', sv.id, 'name', sv.name, 'price', sv.price,
@@ -185,7 +225,35 @@ begin
   if v_found <> array_length(p_services, 1) then
     raise exception 'Algún servicio ya no está disponible. Recargá la página.';
   end if;
+
+  -- add-ons, only those offered with the chosen services
+  if coalesce(array_length(p_addons, 1), 0) > 0 then
+    select array_agg(distinct sv.category_id) into v_cats from public.services sv where sv.id = any(p_services);
+    select coalesce(jsonb_agg(jsonb_build_object('addon_id', ad.id, 'name', ad.name, 'price', ad.price,
+             'duration', ad.duration) order by u.ord), '[]'),
+           coalesce(sum(ad.price), 0), coalesce(sum(ad.duration), 0), count(*)
+      into v_extra, v_extra_total, v_extra_min, v_found
+    from unnest(p_addons) with ordinality as u(id, ord)
+    join public.addons ad on ad.id = u.id and ad.active and (ad.category_ids is null or ad.category_ids && v_cats);
+    if v_found <> array_length(p_addons, 1) then
+      raise exception 'Algún adicional ya no está disponible. Recargá la página.';
+    end if;
+    v_items := v_items || v_extra;
+    v_total := v_total + v_extra_total;
+    v_duration := v_duration + v_extra_min;
+  end if;
   v_end := p_start + v_duration;
+
+  -- seña: a fixed amount (never more than the total) or a percentage rounded to thousands
+  if coalesce((s ->> 'deposit_enabled')::boolean, false) and coalesce((s ->> 'deposit_value')::int, 0) > 0 then
+    if s ->> 'deposit_type' = 'percent' then
+      v_deposit := (round(v_total * (s ->> 'deposit_value')::numeric / 100000) * 1000)::int;
+    elsif v_total > 0 then
+      v_deposit := least((s ->> 'deposit_value')::int, v_total);
+    else
+      v_deposit := (s ->> 'deposit_value')::int;
+    end if;
+  end if;
 
   if p_date < v_today or p_date > v_today + coalesce((s ->> 'booking_days')::int, 14) then
     raise exception 'Ese día no está disponible para reservar.';
@@ -236,20 +304,21 @@ begin
 
   v_status := case when coalesce((s ->> 'auto_confirm')::boolean, false) then 'confirmed' else 'pending' end;
   insert into public.appointments (kind, client_id, client_name, client_phone, staff_id, date, start_min, end_min,
-                                   items, total, status, notes, source)
+                                   items, total, deposit_due, status, notes, source)
   values ('appointment', v_client, v_name, v_phone, v_chosen, p_date, p_start, v_end,
-          v_items, v_total, v_status, nullif(trim(coalesce(p_notes, '')), ''), 'web')
+          v_items, v_total, nullif(v_deposit, 0), v_status, nullif(trim(coalesce(p_notes, '')), ''), 'web')
   returning id into v_id;
 
   return jsonb_build_object('id', v_id, 'staff_id', v_chosen, 'date', p_date, 'start_min', p_start,
-                            'end_min', v_end, 'total', v_total, 'status', v_status, 'items', v_items);
+                            'end_min', v_end, 'total', v_total, 'deposit_due', v_deposit,
+                            'status', v_status, 'items', v_items);
 end;
 $$;
 
 revoke all on function public.busy_times(date, date) from public;
-revoke all on function public.book(text[], text, date, int, text, text, text) from public;
+revoke all on function public.book(text[], text, date, int, text, text, text, text[]) from public;
 grant execute on function public.busy_times(date, date) to anon, authenticated;
-grant execute on function public.book(text[], text, date, int, text, text, text) to anon, authenticated;
+grant execute on function public.book(text[], text, date, int, text, text, text, text[]) to anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
 
 -- ============ photos (Storage bucket "media") ============
@@ -283,6 +352,13 @@ insert into public.settings (id, data) values (1, '{
   "min_notice": 60,
   "default_duration": 60,
   "auto_confirm": false,
+  "deposit_enabled": false,
+  "deposit_type": "fixed",
+  "deposit_value": 0,
+  "payment_info": "",
+  "review_url": "",
+  "review_text": "¡Gracias por venir, {nombre}! 🌸 Si te gustó cómo quedó, ¿me dejarías una reseña en Google? Me ayuda muchísimo: {link}",
+  "appt_reminder_text": "¡Hola {nombre}! 🌸 Te recuerdo tu turno de mañana, {dia} a las {hora}, en Blossom ({servicios}). ¡Te espero!",
   "reminder_days": 21,
   "reminder_text": "¡Hola {nombre}! 🌸 Ya pasaron {dias} días desde tu último turno en Blossom. ¿Reservamos tu retoque? Elegí día y horario acá: {link}"
 }') on conflict (id) do nothing;
@@ -310,11 +386,104 @@ insert into public.services (id, category_id, name, price, duration, image, desc
   ('ext-clasicas', 'pestanas', 'Extensiones clásicas', 160000, 180, 'images/ext-clasicas.webp', null, 11),
   ('ext-griego', 'pestanas', 'Extensiones volumen griego', 180000, 180, 'images/ext-griego.webp', 'Efecto tupido.', 12),
   ('ext-brasilero', 'pestanas', 'Extensiones volumen brasilero', 180000, 180, 'images/ext-brasilero.webp', 'Efecto semitupido.', 13),
-  ('lifting', 'pestanas', 'Lifting de pestañas', null, null, 'images/lifting.webp', 'Precio y duración por WhatsApp.', 14),
+  ('lifting', 'pestanas', 'Lifting de pestañas', 110000, 120, 'images/lifting.webp', 'Realza la mirada de forma natural. Dura 30 días.', 14),
   ('pelu', 'peluqueria', 'Servicios de peluquería', null, null, 'images/pelu-balayage.webp', 'Contanos qué querés hacerte y te pasamos precio y turno.', 15)
 on conflict (id) do nothing;
 
 insert into public.staff (id, name, role, sort) values ('mica', 'Mica', 'Manicurista', 0)
+on conflict (id) do nothing;
+
+-- full catalogue from Mica's PDF catalogues (2026-10), add-ons and the gallery
+insert into public.categories (id, name, image, sort) values
+  ('cejas', 'Cejas', null, 4),
+  ('maquillaje', 'Maquillaje', null, 6)
+on conflict (id) do nothing;
+
+insert into public.services (id, category_id, name, price, duration, image, description, sort) values
+  ('kapping-nude', 'manos', 'Kapping nude', 100000, 105, null, 'Refuerzo sobre tu uña natural, sin agregar largo. Gel, acrílico o polygel. Retoque cada 21 días.', 101),
+  ('rubber-nude', 'manos', 'Base rubber nude', 80000, 60, null, 'Fortalece uñas naturales finas o quebradizas, sin agregar largo.', 102),
+  ('service-kapping-nude', 'manos', 'Service kapping nude', 100000, null, null, 'Mantenimiento de tu kapping.', 103),
+  ('service-kapping-semi', 'manos', 'Service kapping + semipermanente', 110000, null, null, 'Mantenimiento de tu kapping con semipermanente.', 104),
+  ('service-esc-nude', 'esculpidas', 'Service esculpidas nude', 100000, null, null, 'Mantenimiento de tus esculpidas.', 111),
+  ('service-esc-semi', 'esculpidas', 'Service esculpidas + semipermanente', 130000, null, null, 'Mantenimiento de tus esculpidas con semipermanente.', 112),
+  ('service-softgel', 'esculpidas', 'Service softgel', 110000, null, null, 'Mantenimiento de tu softgel.', 113),
+  ('ext-hawaiano', 'pestanas', 'Extensiones volumen hawaiano', 180000, 180, null, null, 121),
+  ('ext-foxy', 'pestanas', 'Extensiones foxy eyes', 200000, 180, null, null, 122),
+  ('ext-anime', 'pestanas', 'Extensiones efecto anime', 200000, 180, null, null, 123),
+  ('mant-clasicas', 'pestanas', 'Mantenimiento clásicas', 140000, null, null, 'Cada 15 a 29 días. Después de 30 días se cobra como colocación nueva.', 124),
+  ('mant-volumen', 'pestanas', 'Mantenimiento volumen (brasilero, hawaiano o griego)', 160000, null, null, 'Cada 15 a 29 días. Después de 30 días se cobra como colocación nueva.', 125),
+  ('mant-foxy-anime', 'pestanas', 'Mantenimiento foxy eyes o efecto anime', 180000, null, null, 'Cada 15 a 29 días. Después de 30 días se cobra como colocación nueva.', 126),
+  ('laminacion-cejas', 'cejas', 'Laminación de cejas', 130000, 120, null, 'Para una mirada más marcada. Incluye tinte. Dura 30 días.', 131),
+  ('cejas-hilo', 'cejas', 'Diseño de cejas + depilación con hilo', 40000, null, null, null, 132),
+  ('cejas-hilo-henna', 'cejas', 'Diseño de cejas + depilación con hilo + henna', 70000, null, null, null, 133),
+  ('cejas-perfilado-henna', 'cejas', 'Diseño de cejas + perfilado + henna', 50000, null, null, null, 134),
+  ('cejas-cera', 'cejas', 'Depilación con cera: cejas, bozo y mentón', 50000, null, null, 'Incluye el diseño de cejas.', 135),
+  ('cejas-marcacion', 'cejas', 'Diseño de cejas + perfilado + marcación', 25000, null, null, null, 136),
+  ('pelu-bano', 'peluqueria', 'Baño capilar', 20000, null, null, null, 141),
+  ('pelu-bano-alfaparf', 'peluqueria', 'Baño Alfaparf Semi di Lino', 50000, null, null, null, 142),
+  ('pelu-bano-mascarilla', 'peluqueria', 'Baño Alfaparf + mascarilla', 70000, null, null, null, 143),
+  ('pelu-secado', 'peluqueria', 'Secado', 15000, null, null, null, 144),
+  ('pelu-secado-difusor', 'peluqueria', 'Secado con difusor', 20000, null, null, null, 145),
+  ('pelu-brushing', 'peluqueria', 'Brushing', 40000, null, null, 'Precio desde Gs. 40.000, según el largo.', 146),
+  ('pelu-brushing-mov', 'peluqueria', 'Brushing con movimiento', 50000, null, null, null, 147),
+  ('pelu-brushing-plancha', 'peluqueria', 'Brushing + planchita', 60000, null, null, null, 148),
+  ('pelu-ondas', 'peluqueria', 'Ondas', 70000, null, 'images/pelu-ondas.webp', null, 149),
+  ('pelu-corte', 'peluqueria', 'Corte', 30000, null, 'images/pelu-corte.webp', 'Precio desde Gs. 30.000.', 150),
+  ('pelu-semi-recogido', 'peluqueria', 'Peinado semi recogido', 80000, null, null, null, 151),
+  ('pelu-recogido', 'peluqueria', 'Peinado recogido', 100000, null, null, null, 152),
+  ('pelu-peinado-ninas', 'peluqueria', 'Peinado para niñas', 30000, null, null, 'Precio desde Gs. 30.000.', 153),
+  ('pelu-colageno', 'peluqueria', 'Colágeno', 90000, null, null, 'Para cabello seco y deshidratado: hidrata y da suavidad y brillo. Incluye brushing y acabado profesional.', 154),
+  ('pelu-keratina', 'peluqueria', 'Keratina', 120000, null, null, 'Para cabello con frizz, poroso o difícil de manejar. Incluye brushing y acabado profesional.', 155),
+  ('pelu-botox', 'peluqueria', 'Botox capilar', 120000, null, null, 'Para cabello dañado, débil o con frizz. Incluye brushing y acabado profesional.', 156),
+  ('pelu-alisado-organico', 'peluqueria', 'Alisado orgánico', 250000, null, null, 'Incluye brushing y acabado profesional.', 157),
+  ('pelu-alisado-progresivo', 'peluqueria', 'Alisado progresivo', 200000, null, null, 'Incluye brushing y acabado profesional.', 158),
+  ('pelu-raiz', 'peluqueria', 'Retoque de raíz', 170000, null, null, 'Incluye brushing y acabado profesional.', 159),
+  ('pelu-matizacion', 'peluqueria', 'Matización', 130000, null, null, 'Incluye brushing y acabado profesional.', 160),
+  ('pelu-balayage', 'peluqueria', 'Balayage', 450000, null, 'images/pelu-balayage.webp', 'Incluye brushing y acabado profesional.', 161),
+  ('pelu-morena', 'peluqueria', 'Morena iluminada', 300000, null, null, 'Incluye brushing y acabado profesional.', 162),
+  ('pelu-mechas', 'peluqueria', 'Mechas tradicionales', 350000, null, null, 'Incluye brushing y acabado profesional.', 163),
+  ('pelu-combo-brushing', 'peluqueria', 'Combo: lavado + brushing + planchita', 80000, null, null, 'Válido de lunes a jueves.', 164),
+  ('pelu-combo-alfaparf', 'peluqueria', 'Combo: tratamiento Alfaparf + corte + secado', 100000, null, null, 'Válido de lunes a jueves.', 165),
+  ('makeup-express', 'maquillaje', 'Makeup express', 130000, null, null, 'Limpieza facial exprés, base sin correcciones y ojos en tonos suaves. Pestañas postizas de regalo.', 171),
+  ('makeup-social', 'maquillaje', 'Social makeup', 230000, null, null, 'Preparación de piel, base de alta cobertura, contorno, ojos definidos y fijación. Pestañas postizas de regalo.', 172)
+on conflict (id) do nothing;
+
+insert into public.addons (id, name, price, duration, category_ids, sort) values
+  ('largor-3', 'Largor 3 o 4', 10000, 0, '{esculpidas}', 1),
+  ('largor-5', 'Largor 5 o más', 20000, 0, '{esculpidas}', 2),
+  ('francesitas', 'Francesitas', 20000, 0, '{manos,esculpidas}', 3),
+  ('ojo-gato', 'Ojo de gato', 20000, 0, '{manos,esculpidas}', 4),
+  ('reconstruccion', 'Reconstrucción de una uña', 10000, 0, '{manos,esculpidas}', 5),
+  ('extraccion-semi', 'Extracción de semipermanente (incluye manicura)', 30000, 0, '{manos,esculpidas}', 6),
+  ('extraccion-acrilico', 'Extracción de acrílico, polygel, softgel o kapping (incluye manicura)', 50000, 0, '{manos,esculpidas}', 7)
+on conflict (id) do nothing;
+
+insert into public.gallery (id, image, caption, sort) values
+  ('g01', 'images/esculpidas-semi.webp', 'Extensiones con diseño de flores', 0),
+  ('g02', 'images/unas-hello-kitty.webp', 'Francesitas con diseño de Hello Kitty', 1),
+  ('g03', 'images/ext-griego.webp', 'Extensiones volumen griego', 2),
+  ('g04', 'images/unas-celeste-rosa.webp', 'Diseño en celeste y rosa', 3),
+  ('g05', 'images/peluqueria.webp', 'Ondas', 4),
+  ('g06', 'images/softgel.webp', 'Softgel con diseño de flor', 5),
+  ('g07', 'images/unas-estrellas.webp', 'Diseño de estrellas', 6),
+  ('g08', 'images/lifting.webp', 'Lifting de pestañas', 7),
+  ('g09', 'images/unas-bordo.webp', 'Diseño en bordó', 8),
+  ('g10', 'images/pelu-balayage.webp', 'Color con ondas', 9),
+  ('g11', 'images/esculpidas-nude.webp', 'Extensiones nude', 10),
+  ('g12', 'images/unas-corazones.webp', 'Diseño de corazones', 11),
+  ('g13', 'images/ext-brasilero.webp', 'Extensiones volumen brasilero', 12),
+  ('g14', 'images/unas-strass.webp', 'Rosa con strass', 13),
+  ('g15', 'images/pelu-ondas.webp', 'Rubio con ondas', 14),
+  ('g16', 'images/kapping.webp', 'Kapping con francesitas', 15),
+  ('g17', 'images/unas-hojas.webp', 'Diseño de hojas', 16),
+  ('g18', 'images/unas-blanco-negro.webp', 'Diseño en blanco y negro', 17),
+  ('g19', 'images/ext-clasicas.webp', 'Extensiones clásicas', 18),
+  ('g20', 'images/pelu-corte.webp', 'Corte en capas', 19),
+  ('g21', 'images/unas-disney.webp', 'Diseño de Disney', 20),
+  ('g22', 'images/unas-carey.webp', 'Carey y estrellas', 21),
+  ('g23', 'images/extraccion.webp', 'Extensiones', 22),
+  ('g24', 'images/spa-pies.webp', 'Spa de pies', 23),
+  ('g25', 'images/pedicura-tradicional.webp', 'Pedicura tradicional', 24)
 on conflict (id) do nothing;
 
 -- ============ last step: give Mica access ============

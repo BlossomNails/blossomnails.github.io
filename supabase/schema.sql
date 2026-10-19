@@ -288,30 +288,30 @@ insert into public.settings (id, data) values (1, '{
 }') on conflict (id) do nothing;
 
 insert into public.categories (id, name, image, sort) values
-  ('manos', 'Manos', 'images/manicura-semi.webp', 0),
+  ('manos', 'Manos', 'images/kapping.webp', 0),
   ('esculpidas', 'Extensión', 'images/esculpidas-semi.webp', 1),
   ('pies', 'Pies', 'images/pedicura-tradicional.webp', 2),
   ('pestanas', 'Pestañas', 'images/ext-clasicas.webp', 3),
-  ('peluqueria', 'Peluquería', null, 4)
+  ('peluqueria', 'Peluquería', 'images/peluqueria.webp', 4)
 on conflict (id) do nothing;
 
 insert into public.services (id, category_id, name, price, duration, image, description, sort) values
   ('mani-trad', 'manos', 'Manicura tradicional', 35000, 30, 'images/manicura-tradicional.webp', null, 0),
-  ('mani-semi', 'manos', 'Manicura semipermanente', 70000, 50, 'images/manicura-semi.webp', 'Sobre el largor de tus uñas naturales. Retoque cada 21 días.', 1),
-  ('rubber', 'manos', 'Base rubber + semipermanente', 110000, 60, 'images/rubber-semi.webp', null, 2),
+  ('mani-semi', 'manos', 'Manicura semipermanente', 70000, 50, null, 'Sobre el largor de tus uñas naturales. Retoque cada 21 días.', 1),
+  ('rubber', 'manos', 'Base rubber + semipermanente', 110000, 60, null, null, 2),
   ('kapping', 'manos', 'Kapping + semipermanente', 130000, 105, 'images/kapping.webp', 'Acrílico o polygel, hasta largor 2. Diseños: cotizá por WhatsApp. Retoque cada 21 días.', 3),
   ('extraccion', 'manos', 'Extracción', 60000, 45, 'images/extraccion.webp', 'Acrílico, polygel o gel. Incluye manicura tradicional.', 4),
   ('esc-nude', 'esculpidas', 'Esculpidas acrílicas nude', 130000, 60, 'images/esculpidas-nude.webp', 'Hasta largor 2. Retoque cada 21 días.', 5),
   ('softgel', 'esculpidas', 'Softgel', 130000, 90, 'images/softgel.webp', 'Incluye semipermanente. Diseños: cotizá por WhatsApp. Retoque cada 21 días.', 6),
   ('esc-semi', 'esculpidas', 'Esculpidas + semipermanente', 160000, 105, 'images/esculpidas-semi.webp', 'Acrílico o polygel, hasta largor 2. Diseños: cotizá por WhatsApp. Retoque cada 21 días.', 7),
   ('pedi-trad', 'pies', 'Pedicura tradicional', 50000, 45, 'images/pedicura-tradicional.webp', null, 8),
-  ('pedi-semi', 'pies', 'Pedicura semipermanente', 80000, 50, 'images/pedicura-semi.webp', 'Color de larga duración y brillo impecable por 1 mes.', 9),
+  ('pedi-semi', 'pies', 'Pedicura semipermanente', 80000, 50, null, 'Color de larga duración y brillo impecable por 1 mes.', 9),
   ('spa-pies', 'pies', 'Spa de pies premium 👑', 140000, 90, 'images/spa-pies.webp', 'Pedicura profunda con hidromasaje, aromaterapia, reflexología y parafina. Incluye semipermanente.', 10),
   ('ext-clasicas', 'pestanas', 'Extensiones clásicas', 160000, 180, 'images/ext-clasicas.webp', null, 11),
   ('ext-griego', 'pestanas', 'Extensiones volumen griego', 180000, 180, 'images/ext-griego.webp', 'Efecto tupido.', 12),
   ('ext-brasilero', 'pestanas', 'Extensiones volumen brasilero', 180000, 180, 'images/ext-brasilero.webp', 'Efecto semitupido.', 13),
-  ('lifting', 'pestanas', 'Lifting de pestañas', null, null, null, 'Precio y duración por WhatsApp.', 14),
-  ('pelu', 'peluqueria', 'Servicios de peluquería', null, null, null, 'Contanos qué querés hacerte y te pasamos precio y turno.', 15)
+  ('lifting', 'pestanas', 'Lifting de pestañas', null, null, 'images/lifting.webp', 'Precio y duración por WhatsApp.', 14),
+  ('pelu', 'peluqueria', 'Servicios de peluquería', null, null, 'images/pelu-balayage.webp', 'Contanos qué querés hacerte y te pasamos precio y turno.', 15)
 on conflict (id) do nothing;
 
 insert into public.staff (id, name, role, sort) values ('mica', 'Mica', 'Manicurista', 0)

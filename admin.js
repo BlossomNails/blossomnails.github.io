@@ -552,7 +552,7 @@ function paintEditorMeta() {
   const warn = [];
   if (st && E.start != null && duration) {
     const end = E.start + duration;
-    if (!blocksFor(D(), st, E.date).some(([o, c]) => E.start >= o && end <= c)) warn.push("Queda fuera del horario de atención.");
+    if (!fitsHours(blocksFor(D(), st, E.date), E.start, end)) warn.push("Queda fuera del horario de atención.");
     const clash = D().appointments.filter((a) => a.id !== E.id && a.staff_id === st.id && a.date === E.date && live(a) && E.start < a.end_min && end > a.start_min);
     if (clash.length) warn.push(`Se superpone con ${clash.map((a) => `${apptTitle(a)} (${hhmm(a.start_min)}–${hhmm(a.end_min)})`).join(", ")}.`);
   }
@@ -937,8 +937,8 @@ function hoursEditor(hours, id) {
         <label class="switch"><input type="checkbox" data-h="on"${on ? " checked" : ""} aria-label="Atiende el ${DAYS[d].toLowerCase()}"><span></span></label></div>
       <div class="day-body">
         <div class="two">
-          <label><span class="lbl">Inicio</span><input class="field" type="time" step="300" data-h="start" value="${hhmm(start)}"></label>
-          <label><span class="lbl">Fin</span><input class="field" type="time" step="300" data-h="end" value="${hhmm(end)}"></label>
+          <label><span class="lbl">Primer turno</span><input class="field" type="time" step="300" data-h="start" value="${hhmm(start)}"></label>
+          <label><span class="lbl">Último turno</span><input class="field" type="time" step="300" data-h="end" value="${hhmm(end)}"></label>
         </div>
         <label class="check"><input type="checkbox" data-h="pause"${pause ? " checked" : ""}> Pausa</label>
         <div class="two pause"${pause ? "" : " hidden"}>
@@ -956,7 +956,7 @@ function readHours(root) {
     const v = (k) => $(`[data-h="${k}"]`, el);
     if (!v("on").checked) continue;
     const s = toMin(v("start").value), e = toMin(v("end").value);
-    if (!v("start").value || !v("end").value || s >= e) return { error: `${DAYS[d]}: el fin tiene que ser después del inicio.` };
+    if (!v("start").value || !v("end").value || s >= e) return { error: `${DAYS[d]}: el último turno tiene que ser después del primero.` };
     if (v("pause").checked) {
       const ps = toMin(v("ps").value), pe = toMin(v("pe").value);
       if (!(s < ps && ps < pe && pe < e)) return { error: `${DAYS[d]}: la pausa tiene que quedar dentro del horario.` };
@@ -971,7 +971,7 @@ VIEWS.horarios = () => {
   const opt = (v, cur, label) => `<option value="${v}"${+cur === v ? " selected" : ""}>${label}</option>`;
   return `
     <div class="page-head"><h1>Horarios</h1></div>
-    <p class="hint">Definí cuándo atendés. La página de reservas solo ofrece turnos dentro de este horario. Para feriados o vacaciones usá <a href="#/especiales">Días especiales</a>.</p>
+    <p class="hint">Definí cuándo atendés. «Último turno» es la última hora a la que se puede reservar, aunque el servicio termine después. Antes de la pausa, el turno tiene que terminar a tiempo. Para feriados o vacaciones usá <a href="#/especiales">Días especiales</a>.</p>
     <form id="hours-form">
       ${hoursEditor(s.hours, "h-salon")}
       ${section("Reservas online", `
@@ -1026,8 +1026,8 @@ function openSpecial() {
       </div>
       <div class="sp-hours" hidden>
         <div class="two">
-          <label><span class="lbl">Inicio</span><input class="field" type="time" step="300" name="start" value="08:00"></label>
-          <label><span class="lbl">Fin</span><input class="field" type="time" step="300" name="end" value="12:00"></label>
+          <label><span class="lbl">Primer turno</span><input class="field" type="time" step="300" name="start" value="08:00"></label>
+          <label><span class="lbl">Último turno</span><input class="field" type="time" step="300" name="end" value="12:00"></label>
         </div>
         <label class="check"><input type="checkbox" name="pause"> Pausa</label>
         <div class="two pause" hidden>
@@ -1049,7 +1049,7 @@ async function saveSpecial(form) {
   let blocks = [];
   if (f.get("type") === "hours") {
     const s = toMin(f.get("start")), e = toMin(f.get("end"));
-    if (!(e > s)) return formError("El fin tiene que ser después del inicio.");
+    if (!(e > s)) return formError("El último turno tiene que ser después del primero.");
     if (f.get("pause")) {
       const ps = toMin(f.get("ps")), pe = toMin(f.get("pe"));
       if (!(s < ps && ps < pe && pe < e)) return formError("La pausa tiene que quedar dentro del horario.");

@@ -311,13 +311,9 @@ function initReservas() {
 
     const slotsEl = $("#slots"), note = $("#slot-note");
     note.textContent = "";
-    const longest = Math.max(0, ...people.flatMap((st) => (st.hours || SETTINGS.hours).flat().map(([o, c]) => c - o)));
     if (!people.length) {
       slotsEl.innerHTML = "";
       note.textContent = "Estos servicios los hacen profesionales distintas. Escribile a Mica y lo coordinan.";
-    } else if (t.need > longest) {
-      slotsEl.innerHTML = "";
-      note.textContent = `Tu combinación dura ${dur(t.need)}, más que un bloque de atención. Escribile a Mica y lo coordinan juntas.`;
     } else if (!booking.day) {
       slotsEl.innerHTML = `<p class="slot-note">${days.some((d) => d.starts.length) ? "Elegí un día para ver los horarios libres." : "No quedan horarios libres para esta combinación. Escribile a Mica y lo coordinan."}</p>`;
     } else {
@@ -328,7 +324,7 @@ function initReservas() {
         `<button type="button" class="pill" data-slot="${m}" aria-pressed="${booking.slot === m}">${hhmm(m)}</button>`).join("")}</div>`).join("");
       note.textContent = t.unknownDuration
         ? "Lo que es a consultar lo calculamos en 1 hora; Mica te avisa si hace falta más tiempo."
-        : `Solo mostramos horarios en los que entran tus ${dur(t.need)} de servicio.`;
+        : `Solo mostramos horarios libres para tus ${dur(t.need)} de servicio.`;
     }
     $("#book").setAttribute("aria-disabled", !(booking.day && booking.slot != null));
     paintLinks();

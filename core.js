@@ -247,8 +247,15 @@ function busyOf(data, staffId, key, ignoreId) {
     .map((a) => [a.start_min, a.end_min]);
 }
 
+// The day's closing time is the last start time: that turn may run past it.
+// Before a pause, the turn has to end in time for it.
+function fitsHours(blocks, from, to) {
+  const last = Math.max(...blocks.map(([, c]) => c));
+  return blocks.some(([o, c]) => from >= o && (to <= c || (c === last && from <= c)));
+}
+
 function isFree(data, staff, key, from, to, ignoreId) {
-  return blocksFor(data, staff, key).some(([o, c]) => from >= o && to <= c)
+  return fitsHours(blocksFor(data, staff, key), from, to)
     && !busyOf(data, staff.id, key, ignoreId).some(([a, b]) => from < b && to > a);
 }
 
@@ -258,8 +265,10 @@ function freeStarts(data, staff, key, need, { ignoreId, now = nowInSalon(), noti
   const taken = busyOf(data, staff.id, key, ignoreId);
   const out = [];
   if (key < now.key) return out;
-  for (const [o, c] of blocksFor(data, staff, key)) {
-    for (let m = o; m + need <= c; m += step) {
+  const blocks = blocksFor(data, staff, key);
+  const last = Math.max(...blocks.map(([, c]) => c));
+  for (const [o, c] of blocks) {
+    for (let m = o; c === last ? m <= c : m + need <= c; m += step) {
       if (key === now.key && m < now.minute + notice) continue;
       if (taken.some(([a, b]) => m < b && m + need > a)) continue;
       out.push(m);

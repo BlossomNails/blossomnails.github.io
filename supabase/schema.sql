@@ -234,7 +234,7 @@ begin
   on conflict (phone) do update set phone = excluded.phone
   returning id into v_client;
 
-  v_status := case when coalesce((s ->> 'auto_confirm')::boolean, true) then 'confirmed' else 'pending' end;
+  v_status := case when coalesce((s ->> 'auto_confirm')::boolean, false) then 'confirmed' else 'pending' end;
   insert into public.appointments (kind, client_id, client_name, client_phone, staff_id, date, start_min, end_min,
                                    items, total, status, notes, source)
   values ('appointment', v_client, v_name, v_phone, v_chosen, p_date, p_start, v_end,
@@ -282,7 +282,7 @@ insert into public.settings (id, data) values (1, '{
   "slot_step": 30,
   "min_notice": 60,
   "default_duration": 60,
-  "auto_confirm": true,
+  "auto_confirm": false,
   "reminder_days": 21,
   "reminder_text": "¡Hola {nombre}! 🌸 Ya pasaron {dias} días desde tu último turno en Blossom. ¿Reservamos tu retoque? Elegí día y horario acá: {link}"
 }') on conflict (id) do nothing;

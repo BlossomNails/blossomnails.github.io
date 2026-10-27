@@ -66,3 +66,4 @@ Después:
 - En el plan gratis, Supabase pausa los proyectos que pasan **7 días sin ningún uso**. Con la web recibiendo visitas no pasa, pero si se pausa se reactiva desde el panel de Supabase con un clic.
 - Desde **Ajustes → Descargar una copia** Mica puede bajar todos sus datos cuando quiera.
 - La primera vez, conviene probar una reserva desde un celular y verla aparecer en el panel.
+- Para sumar algo nuevo a la base que ya está funcionando, se corre solo la parte nueva (por ejemplo un `alter table` o un `create table`), nunca `schema.sql` entero: volvería a cargar servicios o fotos que Mica haya borrado.

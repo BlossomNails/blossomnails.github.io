@@ -221,7 +221,8 @@ function apptCard(a, { date = false } = {}) {
   const st = staffById(a.staff_id);
   const isNew = a.source === "web" && Date.now() - Date.parse(a.created_at) < 864e5;
   const badge = (a.status !== "confirmed" ? `<span class="badge b-${a.status}">${STATUS[a.status]}</span>` : isNew ? '<span class="badge b-new">Nueva</span>' : "")
-    + (a.deposit > 0 ? '<span class="badge b-dep">Seña ✓</span>' : depositOpen(a) && !isPast(a) ? '<span class="badge b-dep-no">Sin seña</span>' : "");
+    + (a.deposit > 0 ? '<span class="badge b-dep">Seña ✓</span>' : depositOpen(a) && !isPast(a) ? '<span class="badge b-dep-no">Sin seña</span>' : "")
+    + (bdayGift(a) ? '<span class="badge" title="Regalo de cumpleaños">🎂</span>' : "");
   return `<button type="button" class="appt s-${a.status}${block ? " is-block" : ""}" data-act="appt-open" data-id="${a.id}">
     <span class="a-time">${date ? `<small class="a-date">${relDay(a.date)}</small>` : ""}<b>${hhmm(a.start_min)}</b><small>${hhmm(a.end_min)}</small></span>
     <span class="a-main"><b>${block ? ic("lock") : ""}${esc(apptTitle(a))}</b>
@@ -256,6 +257,7 @@ VIEWS.inicio = () => {
     .filter((a) => { const c = clientById(a.client_id); if (!c || c.review_requested_at || asked.has(c.id)) return false; asked.add(c.id); return true; });
   const setup = [!s.deposit_enabled && "la seña", !s.review_url && "tu link de reseñas de Google"].filter(Boolean);
   const orphan = uncovered();
+  const bdays = birthdays();
   return `
     <div class="hello">
       <h1>Hola, <em>${esc(D().settings.owner_name || "Mica")}</em></h1>
@@ -271,6 +273,8 @@ VIEWS.inicio = () => {
     ${pending.length ? section(`Por confirmar <span class="count">${pending.length}</span>`, `<div class="list">${pending.map((a) => apptCard(a, { date: true })).join("")}</div>`) : ""}
     ${remind.length ? section(`Recordatorios para mañana <span class="count">${remind.filter((a) => !a.reminded_at).length || "✓"}</span>`,
       `<p class="hint">Un toque y le llega el recordatorio por WhatsApp.</p><div class="list">${remind.map(remindRow).join("")}</div>`) : ""}
+    ${bdays.length ? section(`Cumpleaños <span class="count">${bdays.filter(({ c, nb }) => !bdayGreeted(c, nb)).length || "✓"}</span>`,
+      `<p class="hint">Saludala con ${esc(s.birthday_gift || "tu regalo")} para su próximo turno. El regalo y el mensaje se cambian en <a href="#/ajustes">Ajustes</a>.</p><div class="list">${bdays.map(bdayRow).join("")}</div>`) : ""}
     ${section("Próximas citas", next.length ? `<div class="list">${next.map((a) => apptCard(a, { date: true })).join("")}</div>` : empty("Aún no hay citas próximas."), '<a class="more" href="#/agenda">Ver agenda</a>')}
     ${section(`Para volver a agendar${due.length ? ` <span class="count">${due.length}</span>` : ""}`,
       due.length ? `<p class="hint">Vinieron hace ${D().settings.reminder_days} días o más y no tienen turno.</p><div class="list">${due.slice(0, 5).map(dueRow).join("")}</div>`
@@ -292,6 +296,14 @@ function remindRow(a) {
     <button type="button" class="c-link" data-act="appt-open" data-id="${a.id}"><span class="r-time">${hhmm(a.start_min)}</span>
       <span class="c-main"><b>${esc(a.client_name || "Sin nombre")}</b><small>${esc(a.group_id ? partsText(a) : itemsText(a))}${depositOpen(a) ? " · sin seña" : ""}</small></span></button>
     ${a.client_phone ? `<a class="btn ${sent ? "btn-ghost" : "btn-wa"} sm" href="${waLink(apptReminderMsg(a), a.client_phone)}" target="_blank" rel="noopener" data-act="appt-remind" data-id="${a.id}">${sent ? "Enviado ✓" : wa + "Recordar"}</a>` : '<small class="muted">sin WhatsApp</small>'}
+  </div>`;
+}
+
+function bdayRow({ c, nb }) {
+  return `<div class="c-row${bdayGreeted(c, nb) ? " sent" : ""}">
+    <a class="c-link" href="#/clienta/${c.id}"><span class="avatar" aria-hidden="true">🎂</span>
+      <span class="c-main"><b>${esc(c.name)}</b><small>${bdayWhen(nb)}</small></span></a>
+    ${bdayButton(c, nb)}
   </div>`;
 }
 
@@ -444,6 +456,36 @@ function apptReminderMsg(a) {
 }
 const reviewMsg = (c) => fill(D().settings.review_text, { nombre: firstName(c.name), link: D().settings.review_url });
 
+/* ---- birthdays: saved as "MM-DD", without the year ---- */
+const BDAY_DAYS = 7; // Inicio shows birthdays up to a week ahead
+const bdayText = (b) => `${+b.slice(3)} de ${MONTHS[+b.slice(0, 2) - 1]}`;
+// her birthday nearest to today; one from the last 3 days still counts while the greeting is pending (29/2 → 1/3)
+function nextBday(b, now = nowInSalon()) {
+  if (!b) return null;
+  const y = +now.key.slice(0, 4);
+  const key = [y - 1, y, y + 1].map((yy) => keyOf(parseKey(`${yy}-${b}`))).find((k) => k >= addDays(now.key, -3));
+  return { key, days: daysBetween(now.key, key) };
+}
+const bdayGreeted = (c, nb) => !!c.birthday_greeted_at && c.birthday_greeted_at >= addDays(nb.key, -30);
+const birthdays = () => D().clients.map((c) => ({ c, nb: nextBday(c.birthday) }))
+  .filter(({ c, nb }) => nb && nb.days <= BDAY_DAYS && (nb.days >= 0 || !bdayGreeted(c, nb)))
+  .sort((x, y) => x.nb.days - y.nb.days);
+const bdayWhen = ({ days, key }) => (days === 0 ? "¡Cumple hoy!" : days === 1 ? "Cumple mañana" : days === -1 ? "Cumplió ayer"
+  : `${days < 0 ? "Cumplió" : "Cumple"} el ${DAYS[dowOf(key)].toLowerCase()} ${shortDate(key)}`);
+const bdayMsg = (c) => fill(D().settings.birthday_text, { nombre: firstName(c.name), regalo: D().settings.birthday_gift, link: bookingUrl() });
+// her first turn after the birthday greeting is the one with the gift
+function bdayGift(a) {
+  const c = a.kind !== "block" && a.client_id && clientById(a.client_id);
+  if (!c?.birthday_greeted_at || a.date < c.birthday_greeted_at || daysBetween(c.birthday_greeted_at, a.date) > 60) return false;
+  const first = D().appointments.filter((x) => x.client_id === c.id && x.kind !== "block" && live(x) && x.date >= c.birthday_greeted_at).sort(byTime)[0];
+  return !!first && groupOf(first)[0].id === groupOf(a)[0].id;
+}
+function bdayButton(c, nb) {
+  if (!c.phone) return '<small class="muted">sin WhatsApp</small>';
+  const sent = bdayGreeted(c, nb);
+  return `<a class="btn ${sent ? "btn-ghost" : "btn-wa"} sm" href="${waLink(bdayMsg(c), c.phone)}" target="_blank" rel="noopener" data-act="bday-sent" data-id="${c.id}">${sent ? "Saludada ✓" : wa + "Saludar"}</a>`;
+}
+
 /* ---- Appointment detail ---- */
 
 function openDetail(id) {
@@ -453,7 +495,7 @@ function openDetail(id) {
   const st = staffById(a.staff_id);
   openDlg("detail", block ? "Horario bloqueado" : a.client_name || "Cita", `
     <div class="det" data-id="${a.id}">
-      <div class="det-badges"><span class="badge b-${a.status}">${block ? "Bloqueado" : STATUS[a.status]}</span>${a.source === "web" ? '<span class="badge b-web">Reservó por la web</span>' : ""}</div>
+      <div class="det-badges"><span class="badge b-${a.status}">${block ? "Bloqueado" : STATUS[a.status]}</span>${a.source === "web" ? '<span class="badge b-web">Reservó por la web</span>' : ""}${bdayGift(a) ? `<span class="badge">🎂 Regalo de cumple: ${esc(D().settings.birthday_gift)}</span>` : ""}</div>
       <p class="det-when">${longDate(a.date)}<br><b>${hhmm(a.start_min)} – ${hhmm(a.end_min)}</b> <span class="muted">· ${dur(a.end_min - a.start_min)}</span></p>
       ${st && (multi() || block) ? `<p class="muted">Con ${esc(st.name)}</p>` : ""}
       ${a.group_id ? `<div class="parts"><span class="lbl">Reserva con turnos seguidos</span>${groupOf(a).map((x) => `
@@ -886,10 +928,12 @@ function paintClients() {
   if (q) list = list.filter((c) => c.name.toLowerCase().includes(q) || (digits.length > 2 && (c.phone || "").includes(digits)));
   $("#c-list").innerHTML = list.length ? list.map((c) => {
     const st = cstats(c);
+    const nb = nextBday(c.birthday);
     const line = st.next ? `Próximo turno: ${relDay(st.next.date)} ${hhmm(st.next.start_min)}` : st.last ? `Última visita: hace ${st.since} día${st.since === 1 ? "" : "s"}` : "Sin visitas todavía";
     return `<a class="c-row" href="#/clienta/${c.id}">
       <span class="avatar">${esc(c.name.trim()[0] || "?")}</span>
       <span class="c-main"><b>${esc(c.name)}</b><small>${fmtPhone(c.phone) || "Sin WhatsApp"}</small><small>${line}</small></span>
+      ${nb && nb.days >= 0 && nb.days <= BDAY_DAYS ? `<span class="badge">🎂 ${nb.days === 0 ? "Hoy" : shortDate(nb.key)}</span>` : ""}
       ${st.due ? '<span class="badge b-due">Toca volver</span>' : ""}${ic("right")}</a>`;
   }).join("") : empty(q ? "No encontramos a nadie con esa búsqueda." : A.clients.filter === "volver" ? "Nadie para recordar por ahora." : "Todavía no hay clientas. Se agregan solas cuando reservan, o con «Nueva».");
 }
@@ -898,16 +942,22 @@ VIEWS.clienta = (id) => {
   const c = clientById(id);
   if (!c) return `<a class="back" href="#/clientas">${ic("left")}Clientas</a>${empty("No encontramos esa clienta.")}`;
   const st = cstats(c);
+  const nb = nextBday(c.birthday);
   const hist = D().appointments.filter((a) => a.client_id === c.id).sort((a, b) => byTime(b, a));
   return `
     <a class="back" href="#/clientas">${ic("left")}Clientas</a>
-    <div class="c-head"><span class="avatar lg">${esc(c.name.trim()[0] || "?")}</span><div><h1>${esc(c.name)}</h1><p class="muted">${fmtPhone(c.phone) || "Sin WhatsApp"}</p></div></div>
+    <div class="c-head"><span class="avatar lg">${esc(c.name.trim()[0] || "?")}</span><div><h1>${esc(c.name)}</h1><p class="muted">${fmtPhone(c.phone) || "Sin WhatsApp"}${c.birthday ? ` · 🎂 ${bdayText(c.birthday)}` : ""}</p></div></div>
     <div class="row">
       ${c.phone ? `<a class="btn btn-wa sm" href="${waLink(`¡Hola ${c.name.split(" ")[0]}! 🌸`, c.phone)}" target="_blank" rel="noopener">${wa}WhatsApp</a>` : ""}
       <button class="btn btn-rose sm" type="button" data-act="client-book" data-id="${c.id}">${ic("plus")}Agendar cita</button>
       <button class="btn btn-ghost sm" type="button" data-act="client-edit" data-id="${c.id}">${ic("edit")}Editar</button>
+      ${c.birthday ? "" : `<button class="btn btn-ghost sm" type="button" data-act="client-edit" data-id="${c.id}" data-focus="bday_d">🎂 Agregar cumpleaños</button>`}
       ${c.phone && st.visits && D().settings.review_url ? `<a class="btn btn-ghost sm" href="${waLink(reviewMsg(c), c.phone)}" target="_blank" rel="noopener" data-act="review-ask" data-id="${c.id}">${ic("star")}${c.review_requested_at ? `Reseña pedida el ${shortDate(c.review_requested_at)}` : "Pedir reseña"}</a>` : ""}
     </div>
+    ${nb && nb.days <= BDAY_DAYS ? `<div class="remind">
+      <p><span aria-hidden="true">🎂</span><span><b>${bdayWhen(nb)}</b><small>${bdayGreeted(c, nb) ? "Ya la saludaste. " : ""}Regalo: ${esc(D().settings.birthday_gift)} en su próximo turno.</small></span></p>
+      <div class="row">${bdayButton(c, nb)}</div>
+    </div>` : ""}
     ${st.due ? `<div class="remind">
       <p>${ic("bell")}<span><b>Hace ${st.since} días de su última visita</b><small>Mandale un mensaje para que vuelva a reservar.</small></span></p>
       <div class="row">${c.phone ? `<a class="btn btn-wa sm" href="${waLink(reminderText(D(), c, st.since), c.phone)}" target="_blank" rel="noopener" data-act="remind" data-id="${c.id}">${wa}Enviar recordatorio</a>` : ""}
@@ -924,11 +974,17 @@ VIEWS.clienta = (id) => {
     ${section("Historial", hist.length ? `<div class="list">${hist.map((a) => apptCard(a, { date: true })).join("")}</div>` : empty("Sin citas todavía."))}`;
 };
 
-function openClient(c = null) {
+function openClient(c = null, focus = "name") {
+  const [bm, bd] = c?.birthday ? c.birthday.split("-").map(Number) : [0, 0];
   openDlg("client", c ? "Editar clienta" : "Nueva clienta", `
     <form id="client-form" data-id="${c?.id || ""}">
-      <label><span class="lbl">Nombre</span><input class="field" name="name" value="${esc(c?.name || "")}" required maxlength="80" autofocus></label>
+      <label><span class="lbl">Nombre</span><input class="field" name="name" value="${esc(c?.name || "")}" required maxlength="80"${focus === "name" ? " autofocus" : ""}></label>
       <label><span class="lbl">WhatsApp</span><input class="field" name="phone" type="tel" inputmode="tel" value="${esc(fmtPhone(c?.phone))}" placeholder="Ej.: 0981 123 456"></label>
+      <span class="lbl">Cumpleaños <small>· opcional, sin el año</small></span>
+      <div class="two">
+        <select class="field" name="bday_d" aria-label="Día del cumpleaños"${focus === "bday_d" ? " autofocus" : ""}><option value="">Día</option>${Array.from({ length: 31 }, (_, i) => `<option${bd === i + 1 ? " selected" : ""}>${i + 1}</option>`).join("")}</select>
+        <select class="field" name="bday_m" aria-label="Mes del cumpleaños"><option value="">Mes</option>${MONTHS.map((n, i) => `<option value="${i + 1}"${bm === i + 1 ? " selected" : ""}>${n}</option>`).join("")}</select>
+      </div>
       <label><span class="lbl">Notas <small>· opcional</small></span><textarea class="field" name="notes" rows="3">${esc(c?.notes || "")}</textarea></label>
       <p class="form-error" role="alert" hidden></p>
       <div class="dlg-foot"><button class="btn btn-rose wide" type="submit">Guardar</button></div>
@@ -941,9 +997,13 @@ async function saveClient(form) {
   const phone = normPhone(f.get("phone"));
   if (!name) return formError("Poné el nombre.");
   if (f.get("phone").trim() && (phone.length < 8 || phone.length > 15)) return formError("Revisá el número de WhatsApp.");
+  const bd = +f.get("bday_d"), bm = +f.get("bday_m");
+  if (!bd !== !bm) return formError("Para el cumpleaños elegí el día y el mes.");
+  if (bd > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][bm - 1]) return formError(`El ${bd} de ${MONTHS[bm - 1]} no existe. Revisá el cumpleaños.`);
   const prev = clientById(form.dataset.id);
   await run(async () => {
-    const c = await save("clients", { ...(prev || { id: uid(), reminded_at: null, created_at: new Date().toISOString() }), name, phone: phone || null, notes: f.get("notes").trim() || null });
+    const c = await save("clients", { ...(prev || { id: uid(), reminded_at: null, created_at: new Date().toISOString() }), name, phone: phone || null,
+      birthday: bd ? `${pad(bm)}-${pad(bd)}` : null, notes: f.get("notes").trim() || null });
     // keep her name and number in sync on her appointments
     if (prev) {
       await Promise.all(D().appointments.filter((a) => a.client_id === c.id && (a.client_name !== name || (phone && a.client_phone !== phone)))
@@ -1174,6 +1234,13 @@ VIEWS.finanzas = () => {
   const kept = withDep.filter((a) => OFF.includes(a.status));
   const depAhead = withDep.filter((a) => live(a) && !isPast(a, now));
   const income = sum(done, (a) => a.total) + sum(kept, (a) => a.deposit);
+  // gastos of the month and what's left after them
+  const exp = D().expenses.filter((x) => x.date.startsWith(A.month)).sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || "").localeCompare(a.created_at || ""));
+  const spent = sum(exp, (x) => x.amount);
+  const profit = income - spent;
+  const repeat = fixedToRepeat();
+  const byCat = [...exp.reduce((map, x) => { const t = map.get(x.category) || { label: x.category, n: 0, total: 0 }; t.n++; t.total += x.amount; return map.set(x.category, t); }, new Map()).values()]
+    .sort((a, b) => b.total - a.total);
   const people = new Set(done.map((a) => a.client_id || a.client_name)).size;
   const tally = (key, val) => {
     const map = new Map();
@@ -1192,18 +1259,75 @@ VIEWS.finanzas = () => {
       <b>${MONTHS[m - 1][0].toUpperCase() + MONTHS[m - 1].slice(1)} ${y}</b>
       <button class="icon-btn sm" type="button" data-act="month" data-v="1" aria-label="Mes siguiente">${ic("right")}</button>
     </div>
-    <div class="stats">
+    <div class="stats money">
       <div class="stat big"><small>Ingresos</small><b>${gs(income)}</b><small>${done.length} cita${done.length === 1 ? "" : "s"} realizada${done.length === 1 ? "" : "s"}${kept.length ? ` + ${kept.length} seña${kept.length === 1 ? "" : "s"} que quedó` : ""}</small></div>
+      <div class="stat big"><small>Gastos</small><b>${gs(spent)}</b><small>${exp.length} cargado${exp.length === 1 ? "" : "s"}</small></div>
+      <div class="stat big profit${profit < 0 ? " neg" : ""}"><small>Ganancia real</small><b>${profit < 0 ? "− " : ""}${gs(Math.abs(profit))}</b><small>${profit < 0 ? "Este mes los gastos superan lo que entró" : income > 0 ? `Te queda el ${Math.round((profit / income) * 100)}% de lo que entró` : "Ingresos menos gastos"}</small></div>
+    </div>
+    <div class="stats">
       <div class="stat"><small>Señas cobradas</small><b>${gs(sum(withDep, (a) => a.deposit))}</b><small>${gs(sum(depAhead, (a) => a.deposit))} de turnos que vienen</small></div>
       <div class="stat"><small>Agendado</small><b>${gs(sum(ahead, (a) => a.total))}</b><small>${ahead.length} por venir</small></div>
       <div class="stat"><small>Ticket promedio</small><b>${gs(done.length ? income / done.length : 0)}</b><small>${people} clienta${people === 1 ? "" : "s"}</small></div>
       <div class="stat"><small>Canceladas · no vino</small><b>${appts.filter((a) => a.status === "cancelled").length} · ${appts.filter((a) => a.status === "no_show").length}</b><small>en el mes</small></div>
     </div>
-    <p class="hint">Ingresos: las citas confirmadas que ya pasaron, con el precio cargado en cada una, más las señas de turnos cancelados o a los que no vino.</p>
+    <p class="hint">Ingresos: las citas confirmadas que ya pasaron, con el precio cargado en cada una, más las señas de turnos cancelados o a los que no vino. Ganancia real: ingresos menos los gastos del mes.</p>
+    ${section("Gastos", `
+      ${repeat.length ? `<div class="row-link setup">${ic("calendar")}<span><b>${esc(repeat.map((x) => x.description || x.category).join(", "))}</b><small>Se repite${repeat.length === 1 ? "" : "n"} todos los meses · ${gs(sum(repeat, (x) => x.amount))} el mes pasado</small></span>
+        <button class="btn btn-rose sm" type="button" data-act="exp-repeat">Cargar</button></div>` : ""}
+      ${exp.length ? `<div class="list">${exp.map(expRow).join("")}</div>${byCat.length > 1 ? `<h3 class="day-h"><span>Por tipo</span></h3>${table(byCat)}` : ""}`
+        : `<p class="hint">Cargá lo que gastás en el mes (materiales, alquiler, luz…) para ver cuánto te queda de verdad.</p>`}`,
+      `<button class="btn btn-ghost sm" type="button" data-act="exp-new">${ic("plus")}Agregar gasto</button>`)}
     ${byDay.length ? section("Por día", `<div class="bars">${byDay.map((d) => `<div class="bar"><span>${DAYS_SHORT[dowOf(d.label)]} ${shortDate(d.label)}</span><i style="--w:${(d.total / max) * 100}%"></i><b>${gs(d.total)}</b></div>`).join("")}</div>`) : ""}
     ${bySvc.length ? section("Por servicio", table(bySvc)) : empty("Todavía no hay ingresos este mes.")}
     ${multi() && byStaff.length ? section("Por profesional", table(byStaff)) : ""}`;
 };
+
+const EXP_CATS = ["Materiales", "Alquiler", "Luz, agua e internet", "Sueldos y comisiones", "Publicidad", "Equipos y muebles", "Otros"];
+const expRow = (x) => `<button type="button" class="c-row" data-act="exp-edit" data-id="${x.id}">
+    <span class="r-time">${shortDate(x.date)}</span>
+    <span class="c-main"><b>${esc(x.description || x.category)}</b><small>${x.description ? esc(x.category) : ""}${x.fixed ? `${x.description ? " · " : ""}todos los meses` : ""}</small></span>
+    <b class="exp-amt">${gs(x.amount)}</b></button>`;
+
+// fixed expenses (alquiler…) of last month that aren't loaded yet in the month on screen
+function fixedToRepeat() {
+  const [y, m] = A.month.split("-").map(Number);
+  const prev = keyOf(new Date(Date.UTC(y, m - 2, 1))).slice(0, 7);
+  const here = D().expenses.filter((x) => x.date.startsWith(A.month));
+  return D().expenses.filter((x) => x.fixed && x.date.startsWith(prev)
+    && !here.some((h) => h.category === x.category && (h.description || "") === (x.description || "")));
+}
+
+function openExpense(x = null) {
+  const now = nowInSalon();
+  const date = x?.date || (now.key.startsWith(A.month) ? now.key : `${A.month}-01`);
+  openDlg("expense", x ? "Editar gasto" : "Nuevo gasto", `
+    <form id="exp-form" data-id="${x?.id || ""}">
+      <div class="two">
+        <label><span class="lbl">Monto (Gs.)</span><input class="field" name="amount" inputmode="numeric" data-money value="${fmtNum(x?.amount ?? null)}" placeholder="Ej.: 150.000" required autofocus></label>
+        <label><span class="lbl">Fecha</span><input class="field" name="date" type="date" value="${date}" required></label>
+      </div>
+      <label><span class="lbl">Tipo</span><select class="field" name="category">${[...new Set([...EXP_CATS, ...(x ? [x.category] : [])])].map((c) => `<option${(x?.category || "Materiales") === c ? " selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+      <label><span class="lbl">Detalle <small>· opcional</small></span><input class="field" name="description" value="${esc(x?.description || "")}" maxlength="80" placeholder="Ej.: esmaltes y limas, alquiler del local"></label>
+      <label class="check"><input type="checkbox" name="fixed"${x?.fixed ? " checked" : ""}> Se repite todos los meses (alquiler, internet…)</label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dlg-foot"><button class="btn btn-rose wide" type="submit">Guardar</button></div>
+      ${x ? `<button class="link-danger" type="button" data-act="exp-delete" data-id="${x.id}">${ic("trash")}Eliminar gasto</button>` : ""}
+    </form>`);
+}
+async function saveExpense(form) {
+  const f = new FormData(form);
+  const amount = num(f.get("amount"));
+  const date = f.get("date");
+  if (!amount) return formError("Poné el monto.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return formError("Elegí la fecha.");
+  const prev = D().expenses.find((x) => x.id === form.dataset.id);
+  await run(async () => {
+    await save("expenses", { ...(prev || { id: uid(), created_at: new Date().toISOString() }), amount, date,
+      category: f.get("category"), description: f.get("description").trim() || null, fixed: f.get("fixed") === "on" });
+    A.month = date.slice(0, 7);
+    closeDlg(); render();
+  }, "Gasto guardado ✓");
+}
 
 /* ---- Ajustes ---- */
 VIEWS.ajustes = () => {
@@ -1243,8 +1367,20 @@ VIEWS.ajustes = () => {
       </div>`)}
       ${section("Reseñas en Google", `<div class="card-ed">
         <label><span class="lbl">Tu link para dejar reseña</span><input class="field" name="review_url" type="url" value="${esc(s.review_url)}" placeholder="https://g.page/r/…/review"></label>
-        <label><span class="lbl">Mensaje</span><textarea class="field" name="review_text" rows="3">${esc(s.review_text)}</textarea></label>
-        <p class="hint">El link sale de tu Perfil de Empresa de Google: en Google Maps buscá tu negocio, tocá «Pedir reseñas» y copiá el enlace. {nombre} y {link} se completan solos.</p>
+        <p class="hint">El link sale de tu Perfil de Empresa de Google: en Google Maps buscá tu negocio, tocá «Pedir reseñas» y copiá el enlace.</p>
+        <p class="hint">Con el link cargado, la página muestra el botón «Dejar una reseña», y a quien vino en las últimas dos semanas le aparece «¿Cómo te quedó?» arriba de todo. Así no hace falta mandarlo por WhatsApp.</p>
+        ${s.review_url ? `<button class="btn btn-ghost sm" type="button" data-act="review-qr">${ic("image")}QR para imprimir en el salón</button>` : ""}
+        <label><span class="lbl">Mensaje por WhatsApp <small>· si igual querés pedírsela</small></span><textarea class="field" name="review_text" rows="3">${esc(s.review_text)}</textarea></label>
+        <p class="hint">{nombre} y {link} se completan solos.</p>
+      </div>`)}
+      ${section("Cumpleaños", `<div class="card-ed">
+        <label><span class="lbl">Tu regalo de cumpleaños</span><input class="field" name="birthday_gift" value="${esc(s.birthday_gift)}" maxlength="80" placeholder="Ej.: un 10% de descuento"></label>
+        <label><span class="lbl">Mensaje</span><textarea class="field" name="birthday_text" rows="3">${esc(s.birthday_text)}</textarea></label>
+        <p class="hint">{nombre}, {regalo} y {link} se completan solos. La fecha se carga en la ficha de cada clienta, y en Inicio te aparecen las que cumplen en los próximos 7 días. Su próximo turno queda marcado con 🎂 para que te acuerdes del regalo.</p>
+      </div>`)}
+      ${section("Políticas del salón", `<div class="card-ed">
+        <label><span class="lbl">Se muestran antes de reservar</span><textarea class="field" name="policies_text" rows="4">${esc(s.policies_text)}</textarea></label>
+        <p class="hint">Una por renglón. Lo que va antes de los dos puntos sale en negrita. También aparecen en las preguntas frecuentes de la página. Si lo dejás vacío, no se muestra nada.</p>
       </div>`)}
       <p class="form-error" role="alert" hidden></p>
       <div class="sticky-foot"><button class="btn btn-rose wide" type="submit">Guardar ajustes</button></div>
@@ -1258,6 +1394,43 @@ VIEWS.ajustes = () => {
     ${section("Tus datos", `<button class="btn btn-ghost sm" type="button" data-act="export">Descargar una copia (JSON)</button>
       <button class="btn btn-ghost sm" type="button" data-act="logout">${ic("logout")}Cerrar sesión</button>`)}`;
 };
+
+// A QR to her Google review form, to print for the salon: clients scan it with the camera.
+const QR_JS = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+async function openReviewQr() {
+  const url = D().settings.review_url;
+  if (!url) return toast("Primero guardá tu link de reseñas.");
+  try { if (!window.qrcode) await loadScript(QR_JS); } catch (e) { return toast(e.message, 4000); }
+  await document.fonts?.ready;
+  const card = reviewCard(url);
+  openDlg("qr", "QR para tus reseñas", `
+    <p class="hint">Imprimilo y ponelo en el mostrador o en el espejo: tus clientas lo escanean con la cámara y les abre directo tu página de reseñas en Google.</p>
+    <div class="qr-box"></div>
+    <div class="dlg-foot"><a class="btn btn-rose wide" href="${card.toDataURL("image/png")}" download="blossom-resenas-qr.png">Descargar imagen</a></div>`);
+  $(".qr-box").append(card);
+}
+// the QR on white with a title and the salon's name
+function reviewCard(url) {
+  const qr = qrcode(0, "M");
+  qr.addData(url); qr.make();
+  const n = qr.getModuleCount(), cell = Math.floor(720 / (n + 8)), side = cell * (n + 8), top = 130;
+  const c = document.createElement("canvas");
+  c.width = side; c.height = side + top + 150;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = "#23161b";
+  for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (qr.isDark(r, k)) g.fillRect((k + 4) * cell, top + (r + 4) * cell, cell, cell);
+  g.textAlign = "center";
+  g.font = '600 58px "Cormorant Garamond", serif';
+  g.fillText("¿Te gustó cómo quedó?", side / 2, 92);
+  g.font = '500 30px Poppins, sans-serif';
+  g.fillText("Escaneá y dejanos tu reseña en Google", side / 2, top + side + 34);
+  g.fillStyle = "#e0a526"; g.font = '36px sans-serif';
+  g.fillText("★★★★★", side / 2, top + side + 88);
+  g.fillStyle = "#c42a59"; g.font = '600 26px Poppins, sans-serif';
+  g.fillText(D().settings.business_name || "Blossom Beauty Salon", side / 2, top + side + 132);
+  return c;
+}
 
 /* ---- Más (phones) ---- */
 VIEWS.mas = () => {
@@ -1381,7 +1554,7 @@ const ACT = {
   // clients
   "clients-filter": (el) => { A.clients.filter = el.dataset.v; render(); },
   "client-new": () => openClient(),
-  "client-edit": (el) => openClient(clientById(el.dataset.id)),
+  "client-edit": (el) => openClient(clientById(el.dataset.id), el.dataset.focus),
   "client-book": (el) => { const c = clientById(el.dataset.id); openEditor({ client_id: c.id, client_name: c.name, client_phone: c.phone }); },
   "client-notes": (el) => { const c = clientById(el.dataset.id); run(() => save("clients", { ...c, notes: $("#c-notes").value.trim() || null }), "Nota guardada ✓"); },
   "client-delete": (el) => {
@@ -1392,6 +1565,10 @@ const ACT = {
   remind: (el) => {
     const c = clientById(el.dataset.id);
     run(async () => { await save("clients", { ...c, reminded_at: nowInSalon().key }); render(); });
+  },
+  "bday-sent": (el) => {
+    const c = clientById(el.dataset.id);
+    run(async () => { await save("clients", { ...c, birthday_greeted_at: nowInSalon().key }); render(); });
   },
 
   // special days, team
@@ -1414,6 +1591,25 @@ const ACT = {
   },
 
   // money, settings
+  "exp-new": () => openExpense(),
+  "exp-edit": (el) => openExpense(D().expenses.find((x) => x.id === el.dataset.id)),
+  "exp-delete": (el) => {
+    if (!confirm("¿Eliminar este gasto?")) return;
+    run(async () => { await remove("expenses", el.dataset.id); closeDlg(); render(); }, "Gasto eliminado");
+  },
+  // copies last month's fixed expenses into this month, same day and amount (she can edit them after)
+  "exp-repeat": () => {
+    const [y, m] = A.month.split("-").map(Number);
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const list = fixedToRepeat();
+    run(async () => {
+      for (const x of list) {
+        await save("expenses", { ...x, id: uid(), date: `${A.month}-${pad(Math.min(+x.date.slice(8), last))}`, created_at: new Date().toISOString() });
+      }
+      render();
+    }, `${list.length === 1 ? "Gasto cargado" : `${list.length} gastos cargados`} ✓`);
+  },
+  "review-qr": () => openReviewQr(),
   month: (el) => { const [y, m] = A.month.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + +el.dataset.v, 1)); A.month = keyOf(d).slice(0, 7); render(); },
   notify: async () => { try { await Notification.requestPermission(); } catch {} render(); },
   export: () => {
@@ -1503,6 +1699,7 @@ document.addEventListener("submit", (e) => {
   if (form.id === "special-form") return saveSpecial(form);
   if (form.id === "staff-form") return saveStaff(form);
   if (form.id === "addon-form") return saveAddon(form);
+  if (form.id === "exp-form") return saveExpense(form);
   if (form.id === "cat-form") {
     const name = new FormData(form).get("name").trim();
     if (!name) return;
@@ -1531,6 +1728,9 @@ document.addEventListener("submit", (e) => {
     if (depType === "percent" && depValue > 100) return formError("El porcentaje de la seña tiene que ser hasta 100.");
     const reviewUrl = f.get("review_url").trim();
     if (reviewUrl && !/^https?:\/\//.test(reviewUrl)) return formError("El link de reseñas tiene que empezar con https://");
+    const gift = f.get("birthday_gift").trim();
+    const giftText = f.get("birthday_text").trim() || SEED.settings.birthday_text;
+    if (!gift && giftText.includes("{regalo}")) return formError("Poné tu regalo de cumpleaños, o sacá {regalo} del mensaje.");
     return run(async () => {
       await saveSettings({
         business_name: f.get("business_name").trim() || SEED.settings.business_name, owner_name: f.get("owner_name").trim(),
@@ -1538,6 +1738,8 @@ document.addEventListener("submit", (e) => {
         deposit_enabled: depOn, deposit_type: depType, deposit_value: depValue, payment_info: f.get("payment_info").trim(),
         appt_reminder_text: f.get("appt_reminder_text").trim() || SEED.settings.appt_reminder_text,
         review_url: reviewUrl, review_text: f.get("review_text").trim() || SEED.settings.review_text,
+        birthday_gift: gift, birthday_text: giftText,
+        policies_text: f.get("policies_text").split("\n").map((l) => l.trim()).filter(Boolean).join("\n"),
       });
       render();
     }, "Ajustes guardados ✓");

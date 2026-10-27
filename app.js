@@ -129,6 +129,29 @@ function renderHours() {
   }
 }
 
+// buttons to her Google review form, so clients review on their own (hidden until the link is set)
+function renderReviews() {
+  $$("[data-review]").forEach((a) => {
+    a.hidden = !SETTINGS.review_url;
+    if (SETTINGS.review_url) { a.href = SETTINGS.review_url; a.target = "_blank"; a.rel = "noopener"; }
+  });
+}
+
+// salon rules from the panel, one per line; "Puntualidad: texto" puts the title in bold
+function policyItems() {
+  return String(SETTINGS.policies_text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/^([^:]{2,30}):\s*(.+)$/);
+    return `<li>${m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(l)}</li>`;
+  }).join("");
+}
+function renderPolicies() {
+  const items = policyItems();
+  const box = $("#policies");
+  if (box) { box.hidden = !items; box.innerHTML = items ? `<b>Antes de reservar</b><ul class="policy-list">${items}</ul>` : ""; }
+  $$("[data-policies-faq]").forEach((d) => { d.hidden = !items; });
+  $$("[data-policies]").forEach((ul) => { ul.innerHTML = items; });
+}
+
 function wireWhatsAppLinks() {
   $$("[data-wa]").forEach((a) => {
     a.href = waLink(a.dataset.wa || "¡Hola Mica! Vengo desde la web de Blossom 🌸");
@@ -281,7 +304,7 @@ function initReservas() {
       <button type="button" class="pill addon" data-addon="${esc(a.id)}" aria-pressed="${extras.includes(a.id)}">${esc(a.name)}<small>+ ${money(a.price)}</small></button>`).join("");
     const dep = $("#deposit-note");
     dep.hidden = !t.deposit;
-    dep.innerHTML = t.deposit ? `<b>Seña para confirmar: ${money(t.deposit)}</b><small>Al enviar la reserva te mostramos los datos para transferir. También podés pagar con tarjeta o QR.</small>` : "";
+    dep.innerHTML = t.deposit ? `<b>Seña para confirmar: ${money(t.deposit)}</b><small>Al enviar la reserva te mostramos los datos para transferir. También podés pagar con tarjeta o QR. Si no venís al turno, la seña no se devuelve.</small>` : "";
 
     // professionals: asked only when one person does everything and there's a choice
     const { parts, missing } = cartPlan();
@@ -523,6 +546,7 @@ function initReservas() {
       .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min)[0];
     const last = (m.bookings || []).filter((b) => b.date < now.key).map((b) => b.date).sort().at(-1);
     const first = esc((m.name || "").split(" ")[0]);
+    const review = SETTINGS.review_url && last && m.reviewed !== last && daysBetween(last, now.key) <= 14;
     if (next) {
       box.innerHTML = `<div class="me-card">
         <span class="eyebrow"><svg class="sparkle"><use href="#i-sparkle"/></svg>Tu próximo turno</span>
@@ -530,6 +554,15 @@ function initReservas() {
         <small>${esc(next.names.join(" · "))}</small>
         <a class="link" href="${waLink(`¡Hola Mica! 🌸 Soy ${m.name}. Te escribo por mi turno del ${DAYS[dowOf(next.date)].toLowerCase()} ${shortDate(next.date)} a las ${hhmm(next.start_min)}.`)}" target="_blank" rel="noopener">¿Cambiar o cancelar? Escribile a Mica</a>
       </div>`;
+    } else if (review) {
+      // she came in the last two weeks: ask for the review here instead of by WhatsApp
+      box.innerHTML = `<div class="me-card">
+        <span class="eyebrow"><svg class="sparkle"><use href="#i-sparkle"/></svg>${first ? `¡Gracias por venir, ${first}!` : "¡Gracias por venir!"}</span>
+        <strong>¿Cómo te quedó?</strong>
+        <small>Si te gustó, dejanos una reseña en Google. Nos ayuda a que más gente nos encuentre.</small>
+        <a class="btn btn-rose sm" href="${esc(SETTINGS.review_url)}" target="_blank" rel="noopener" data-reviewed="${last}"><span class="star" aria-hidden="true">★</span>Dejar mi reseña</a>
+      </div>`;
+      $("[data-reviewed]", box).addEventListener("click", () => { me.set({ ...me.get(), reviewed: last }); setTimeout(renderMe, 400); });
     } else if (last && daysBetween(last, now.key) >= SETTINGS.reminder_days) {
       box.innerHTML = `<div class="me-card">
         <span class="eyebrow"><svg class="sparkle"><use href="#i-sparkle"/></svg>${first ? `¡Hola, ${first}!` : "¡Hola!"}</span>
@@ -715,6 +748,8 @@ function applyData(d) {
   renderCategoryCards();
   renderGallery();
   renderPayFaq();
+  renderReviews();
+  renderPolicies();
   renderStatus();
   renderHours();
   wireWhatsAppLinks();

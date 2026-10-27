@@ -86,6 +86,10 @@ const SEED = {
     review_text: "¡Gracias por venir, {nombre}! 🌸 Si te gustó cómo quedó, ¿me dejarías una reseña en Google? Me ayuda muchísimo: {link}",
     reminder_days: 21,
     reminder_text: "¡Hola {nombre}! 🌸 Ya pasaron {dias} días desde tu último turno en Blossom. ¿Reservamos tu retoque? Elegí día y horario acá: {link}",
+    birthday_gift: "un 10% de descuento",
+    birthday_text: "¡Feliz semana de cumple, {nombre}! 🎂🌸 Para festejarte, te regalo {regalo} en tu próximo turno en Blossom. Reservá acá: {link}",
+    // shown before booking, one per line; "Título: texto" shows the title in bold
+    policies_text: "Puntualidad: si llegás más de 15 minutos tarde, puede que tengamos que reprogramar tu turno.\nCancelación: si no podés venir, avisanos con al menos 24 horas de anticipación.",
   },
   categories: [
     { id: "manos", name: "Manos", image: "images/kapping.webp", sort: 0 },
@@ -171,6 +175,7 @@ const SEED = {
   ],
   clients: [],
   appointments: [],
+  expenses: [], // what the salon spends: { date, category, description, amount, fixed (repeats every month) }
   exceptions: [], // special days: { date, staff_id (null = whole salon), blocks ([] = closed), note }
   // extras added to a service. category_ids: null = offered with every service
   addons: [
@@ -423,7 +428,7 @@ async function resizeImage(file, max) {
 /* =========================================================
    Storage adapters. Both expose the same methods.
    ========================================================= */
-const TABLES = ["categories", "services", "staff", "clients", "appointments", "exceptions", "addons", "gallery"];
+const TABLES = ["categories", "services", "staff", "clients", "appointments", "exceptions", "addons", "gallery", "expenses"];
 
 function publicView(d, today) {
   return {

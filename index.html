@@ -112,6 +112,16 @@
     <h2 class="section-title"><svg class="sparkle"><use href="#i-sparkle"/></svg>Horario de atención</h2>
     <div class="card"><ul class="hours" data-hours></ul></div>
 
+    <!-- straight to her Google review form; shown once the link is set in the panel -->
+    <a class="salon-link review-link" data-review hidden href="#">
+      <span class="stars" aria-hidden="true">★★★★★</span>
+      <span>
+        <strong>¿Ya te atendiste en Blossom?</strong>
+        <small>Contanos cómo te fue con una reseña en Google</small>
+      </span>
+      <span class="arrow" aria-hidden="true">→</span>
+    </a>
+
     <p class="foot-note">Se cobra en guaraníes; las otras monedas son aproximadas. Diseños y nail art se cotizan por WhatsApp.<br>© 2026 Blossom Beauty Salon</p>
   </main>
 
@@ -171,6 +181,8 @@
 
       <h4><label for="notes">¿Algo más?</label> <small>· opcional</small></h4>
       <textarea class="field" id="notes" rows="2" maxlength="500" placeholder="Ej.: quiero un diseño como el de la foto, color nude…"></textarea>
+
+      <div class="policies" id="policies" hidden></div>
 
       <p class="form-error" id="book-error" role="alert" hidden></p>
       <a class="btn btn-wa send" id="book" href="https://wa.me/595981676610" target="_blank" rel="noopener" aria-disabled="true"><svg><use href="#i-wa"/></svg>Enviar reserva por WhatsApp</a>
@@ -343,6 +355,10 @@
             <summary>¿Cómo puedo pagar?</summary>
             <p data-pay-faq>Por transferencia, con tarjeta de crédito o débito, o con QR. Pedile los datos a Mica por WhatsApp.</p>
           </details>
+          <details data-policies-faq hidden>
+            <summary>¿Qué pasa si llego tarde o no puedo ir?</summary>
+            <ul class="policy-list" data-policies></ul>
+          </details>
           <details>
             <summary>¿Cada cuánto tengo que hacer el retoque?</summary>
             <p>Cada 21 días para manicura semipermanente, kapping, extensiones y softgel. La pedicura semipermanente dura alrededor de un mes.</p>
@@ -406,6 +422,7 @@
         <div class="ctas">
           <a class="btn btn-rose" href="#reservas">Reservar turno</a>
           <a class="btn btn-ghost" href="https://www.instagram.com/blossomnails.py/" target="_blank" rel="noopener"><svg><use href="#i-ig"/></svg>Instagram</a>
+          <a class="btn btn-ghost" data-review hidden href="#"><span class="star" aria-hidden="true">★</span>Dejar una reseña</a>
         </div>
       </div>
     </section>
@@ -418,6 +435,7 @@
         <a href="#reservas">Reservas</a>
         <a href="https://www.instagram.com/blossomnails.py/" target="_blank" rel="noopener">Instagram</a>
         <a data-wa href="https://wa.me/595981676610">+595 981 676 610</a>
+        <a data-review hidden href="#">Reseñas en Google</a>
         <a href="admin.html">Acceso del salón</a>
       </span>
     </div>

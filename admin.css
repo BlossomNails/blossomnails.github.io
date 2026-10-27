@@ -460,3 +460,11 @@ a.c-row:hover, button.c-row:hover { background: var(--card-hover); }
 .gal-item .field.sm { width: 100%; }
 .gal-ctl { display: flex; align-items: center; justify-content: space-between; gap: 2px; }
 .gal-ctl .switch { transform: scale(.85); }
+
+/* bookings with several professionals */
+.parts { display: grid; gap: 6px; margin: 10px 0 4px; }
+.parts .lbl { margin: 0 0 2px; }
+.part { display: grid; gap: 2px; padding: 8px 12px; border: 0; border-radius: 12px; text-align: left; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); font-size: 13.5px; }
+.part.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.part span { color: var(--muted); font-size: 12.5px; }
+.row-link.warnlink { background: color-mix(in srgb, var(--amber) 18%, var(--card)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 45%, var(--line)); }

@@ -259,16 +259,12 @@ function initReservas() {
   }
 
   // who can do everything in the cart
-  const staffOptions = () => eligibleStaff(DATA, cart);
-  function startsFor(key, need) {
-    const people = staffOptions().filter((st) => !booking.staff || st.id === booking.staff);
-    const all = new Set();
-    people.forEach((st) => freeStarts(DATA, st, key, need).forEach((m) => all.add(m)));
-    return [...all].sort((a, b) => a - b);
+  // who does what: one person, or several one after another (nails with Mica, then hair with Lore)
+  function cartPlan() {
+    const { groups, missing } = splitCart(DATA, cart);
+    return { parts: cartParts(DATA, groups, extras), missing };
   }
-  function hasHours(key) {
-    return staffOptions().some((st) => (!booking.staff || st.id === booking.staff) && blocksFor(DATA, st, key).length);
-  }
+  const shortName = (st) => st.name.trim().split(" ")[0];
 
   function renderSheet() {
     const t = totals();
@@ -287,33 +283,40 @@ function initReservas() {
     dep.hidden = !t.deposit;
     dep.innerHTML = t.deposit ? `<b>Seña para confirmar: ${money(t.deposit)}</b><small>Al enviar la reserva te mostramos los datos para transferir. También podés pagar con tarjeta o QR.</small>` : "";
 
-    // professionals: only asked when there's more than one
-    const people = staffOptions();
-    if (booking.staff && !people.some((p) => p.id === booking.staff)) booking.staff = null;
-    $("#staff-step").hidden = DATA.staff.length < 2;
-    $("#staff-pills").innerHTML = [{ id: "", name: "Cualquiera" }, ...people].map((p) => `
+    // professionals: asked only when one person does everything and there's a choice
+    const { parts, missing } = cartPlan();
+    const choice = parts.length === 1 ? parts[0].staff : [];
+    if (booking.staff && !choice.some((p) => p.id === booking.staff)) booking.staff = null;
+    $("#staff-step").hidden = choice.length < 2;
+    $("#staff-pills").innerHTML = [{ id: "", name: "Cualquiera" }, ...choice].map((p) => `
       <button type="button" class="pill" data-staff="${esc(p.id)}" aria-pressed="${(booking.staff || "") === p.id}">${esc(p.name)}${p.role ? `<small>${esc(p.role)}</small>` : ""}</button>`).join("");
+    // several professionals: say who does what
+    const who = $("#who-note");
+    who.hidden = parts.length < 2;
+    who.innerHTML = parts.length < 2 ? "" : `Te atienden ${parts.map((p) =>
+      `<b>${esc(p.staff.map(shortName).join(" o "))}</b> (${esc(p.service_ids.map((id) => svc(id).name).join(", "))})`).join(" y ")}, una después de la otra.`;
 
     // days with free times; full days stay visible but disabled
     const now = nowInSalon();
     const days = [];
-    for (let i = 0; i <= SETTINGS.booking_days; i++) {
+    const involved = [...new Set(parts.flatMap((p) => p.staff))];
+    for (let i = 0; !missing.length && i <= SETTINGS.booking_days; i++) {
       const key = addDays(now.key, i);
-      if (!hasHours(key)) continue;
-      const starts = startsFor(key, t.need);
+      if (!involved.some((st) => blocksFor(DATA, st, key).length)) continue;
+      const starts = cartStarts(DATA, parts, key, { staffPick: booking.staff, now });
       if (i === 0 && !starts.length) continue;
       days.push({ key, i, starts });
     }
     if (booking.day && !days.some((d) => d.key === booking.day && d.starts.length)) { booking.day = null; booking.slot = null; }
     $("#days").innerHTML = days.length ? days.map((d) => `<button type="button" class="pill pill-day" data-day="${d.key}" aria-pressed="${booking.day === d.key}"${d.starts.length ? "" : " disabled"}>
         ${d.i === 0 ? "Hoy" : d.i === 1 ? "Mañana" : DAYS_SHORT[dowOf(d.key)]}<small>${d.starts.length ? shortDate(d.key) : "Completo"}</small></button>`).join("")
-      : `<p class="slot-note">No hay días con horario disponible en las próximas semanas.</p>`;
+      : missing.length ? "" : `<p class="slot-note">No hay días con horario disponible en las próximas semanas.</p>`;
 
     const slotsEl = $("#slots"), note = $("#slot-note");
     note.textContent = "";
-    if (!people.length) {
+    if (missing.length) {
       slotsEl.innerHTML = "";
-      note.textContent = "Estos servicios los hacen profesionales distintas. Escribile a Mica y lo coordinan.";
+      note.textContent = `${missing.map((id) => `«${svc(id).name}»`).join(", ")} todavía no se puede reservar online. Escribile a Mica y lo coordinan.`;
     } else if (!booking.day) {
       slotsEl.innerHTML = `<p class="slot-note">${days.some((d) => d.starts.length) ? "Elegí un día para ver los horarios libres." : "No quedan horarios libres para esta combinación. Escribile a Mica y lo coordinan."}</p>`;
     } else {
@@ -324,7 +327,8 @@ function initReservas() {
         `<button type="button" class="pill" data-slot="${m}" aria-pressed="${booking.slot === m}">${hhmm(m)}</button>`).join("")}</div>`).join("");
       note.textContent = t.unknownDuration
         ? "Lo que es a consultar lo calculamos en 1 hora; Mica te avisa si hace falta más tiempo."
-        : `Solo mostramos horarios libres para tus ${dur(t.need)} de servicio.`;
+        : parts.length > 1 ? `Solo mostramos horarios en los que entran los turnos seguidos (${dur(t.need)} en total).`
+          : `Solo mostramos horarios libres para tus ${dur(t.need)} de servicio.`;
     }
     $("#book").setAttribute("aria-disabled", !(booking.day && booking.slot != null));
     paintLinks();
@@ -438,15 +442,15 @@ function initReservas() {
     err.hidden = true;
     const href = paintLinks(); // the link opens WhatsApp as soon as this handler returns
     const t = totals();
-    const req = {
-      service_ids: [...cart], addon_ids: [...extras], staff_id: booking.staff, date: booking.day, start: booking.slot,
-      name, phone, notes: $("#notes").value.trim(),
-    };
+    // who takes each part at that time (the database checks it again)
+    const plan = placeParts(DATA, cartPlan().parts, booking.day, booking.slot, { staffPick: booking.staff });
+    if (!plan) return stop("Ese horario se acaba de ocupar. Elegí otro, por favor.");
+    const req = { plan, date: booking.day, start: booking.slot, name, phone, notes: $("#notes").value.trim() };
     sending = true;
     $("#book").classList.add("is-busy");
     // sent right here, not after an await, so it leaves before the phone switches to WhatsApp
     let saving;
-    try { saving = DB_NOW.book(req); } catch (x) { saving = Promise.reject(x); }
+    try { saving = DB_NOW.bookGroup(req); } catch (x) { saving = Promise.reject(x); }
     saving.then((res) => {
       const m = me.get();
       m.name = name; m.phone = phone;
@@ -482,7 +486,9 @@ function initReservas() {
       <div class="done-card">
         <strong>${longDate(res.date)} · ${hhmm(res.start_min)} hs</strong>
         <span>${[...t.items, ...t.adds].map((s) => esc(s.name)).join(" · ")}</span>
-        <span class="muted">${who && DATA.staff.length > 1 ? `con ${esc(who.name)} · ` : ""}${t.unknownDuration ? "aprox. " : ""}${dur(res.end_min - res.start_min)}</span>
+        <span class="muted">${(res.segments || []).length > 1
+          ? res.segments.map((sg) => `${hhmm(sg.start_min)} con ${esc(shortName(DATA.staff.find((x) => x.id === sg.staff_id) || { name: "" }))}`).join(" · ") + " · "
+          : who && DATA.staff.length > 1 ? `con ${esc(who.name)} · ` : ""}${t.unknownDuration ? "aprox. " : ""}${dur(res.end_min - res.start_min)}</span>
         <span class="price">${t.price ? gs(t.price) + (t.unknown ? " + consultar" : "") : "Precio a consultar"}</span>
       </div>
       ${deposit ? `<div class="pay-box">

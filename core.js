@@ -294,30 +294,100 @@ function depositFor(s, total) {
   return total > 0 ? Math.min(s.deposit_value, total) : s.deposit_value;
 }
 
-// Works out a web booking: which professional takes it, the price and the length. Mirrors book() in schema.sql.
-function planBooking(data, { service_ids, addon_ids = [], staff_id, date, start }, now = nowInSalon()) {
+/* ---------- bookings with one or several professionals ---------- */
+const canDoAll = (st, ids) => !st.service_ids || ids.every((id) => st.service_ids.includes(id));
+
+// Splits the cart among the professionals: one person when someone does everything,
+// otherwise as few people as possible, one after another. `missing` = services nobody has.
+function splitCart(data, serviceIds) {
+  const people = eligibleStaff(data);
+  const missing = serviceIds.filter((id) => !people.some((st) => canDoAll(st, [id])));
+  let left = serviceIds.filter((id) => !missing.includes(id));
+  const groups = [];
+  const all = people.filter((st) => canDoAll(st, left));
+  if (left.length && all.length) return { groups: [{ service_ids: left, staff: all }], missing };
+  while (left.length) {
+    let best = [];
+    for (const st of people) { const mine = left.filter((id) => canDoAll(st, [id])); if (mine.length > best.length) best = mine; }
+    groups.push({ service_ids: best, staff: people.filter((st) => canDoAll(st, best)) });
+    left = left.filter((id) => !best.includes(id));
+  }
+  return { groups, missing };
+}
+
+// adds the add-ons (each to the first group it goes with) and how long each group takes
+function cartParts(data, groups, addonIds = []) {
+  const def = data.settings.default_duration;
+  const parts = groups.map((g) => ({ ...g, addon_ids: [] }));
+  for (const id of addonIds) parts.find((p) => addonsFor(data, p.service_ids).some((a) => a.id === id))?.addon_ids.push(id);
+  for (const p of parts) {
+    p.need = p.service_ids.reduce((t, id) => t + (data.services.find((x) => x.id === id)?.duration || def), 0)
+      + p.addon_ids.reduce((t, id) => t + ((data.addons || []).find((a) => a.id === id)?.duration || 0), 0);
+  }
+  return parts;
+}
+
+const permutations = (a) => (a.length <= 1 ? [a] : a.flatMap((x, i) => permutations([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p])));
+
+// For a start time, an order and a free person for each part so they fit back to back. null if none.
+function placeParts(data, parts, key, start, { staffPick } = {}) {
+  for (const order of permutations(parts)) {
+    let t = start;
+    const plan = [];
+    for (const p of order) {
+      const people = staffPick && parts.length === 1 ? p.staff.filter((st) => st.id === staffPick) : p.staff;
+      const st = people.find((x) => isFree(data, x, key, t, t + p.need));
+      if (!st) break;
+      plan.push({ staff: st.id, services: p.service_ids, addons: p.addon_ids, start: t, end: t + p.need });
+      t += p.need;
+    }
+    if (plan.length === order.length) return plan;
+  }
+  return null;
+}
+
+// start times on a day for the whole cart
+function cartStarts(data, parts, key, { staffPick, now = nowInSalon(), notice = data.settings.min_notice } = {}) {
+  if (!parts.length || key < now.key) return [];
+  const step = data.settings.slot_step || 30;
+  const people = [...new Set(parts.flatMap((p) => p.staff))];
+  const times = new Set();
+  for (const st of people) for (const [o, c] of blocksFor(data, st, key)) for (let m = o; m <= c; m += step) times.add(m);
+  return [...times].sort((a, b) => a - b)
+    .filter((m) => !(key === now.key && m < now.minute + notice) && placeParts(data, parts, key, m, { staffPick }));
+}
+
+// Checks a booking plan like book_group() in schema.sql does, and prices it.
+function checkPlan(data, { plan, date, start }, now = nowInSalon()) {
   const s = data.settings;
-  const services = service_ids.map((id) => data.services.find((x) => x.id === id && x.active));
-  if (!services.length || services.some((x) => !x)) return { error: "Algún servicio ya no está disponible. Recargá la página." };
-  const offered = addonsFor(data, service_ids);
-  const addons = addon_ids.map((id) => offered.find((a) => a.id === id));
-  if (addons.some((a) => !a)) return { error: "Algún adicional ya no está disponible. Recargá la página." };
-  const items = [...services.map((x) => lineOf(x, s.default_duration)), ...addons.map(addonLine)];
-  const duration = items.reduce((a, x) => a + x.duration, 0);
-  const total = items.reduce((a, x) => a + (x.price || 0), 0);
+  if (!plan?.length || plan.length > 4) return { error: "Elegí al menos un servicio." };
   if (date < now.key || date > addDays(now.key, s.booking_days)) return { error: "Ese día no está disponible para reservar." };
   if (date === now.key && start < now.minute + s.min_notice) return { error: "Ese horario ya pasó o está muy cerca. Elegí otro." };
-  const staff = eligibleStaff(data, service_ids)
-    .filter((st) => !staff_id || st.id === staff_id)
-    .find((st) => isFree(data, st, date, start, start + duration));
-  if (!staff) return { error: "Ese horario se acaba de ocupar. Elegí otro, por favor." };
-  return { staff, items, duration, total, deposit: depositFor(s, total) };
+  let t = start, total = 0;
+  const segments = [];
+  for (const p of plan) {
+    const st = data.staff.find((x) => x.id === p.staff && x.active);
+    if (!st) return { error: "La agenda cambió. Recargá la página y elegí de nuevo." };
+    const services = p.services.map((id) => data.services.find((x) => x.id === id && x.active));
+    if (!services.length || services.some((x) => !x) || !canDoAll(st, p.services)) return { error: "Algún servicio ya no está disponible. Recargá la página." };
+    const offered = addonsFor(data, p.services);
+    const addons = (p.addons || []).map((id) => offered.find((a) => a.id === id));
+    if (addons.some((a) => !a)) return { error: "Algún adicional ya no está disponible. Recargá la página." };
+    const items = [...services.map((x) => lineOf(x, s.default_duration)), ...addons.map(addonLine)];
+    const need = items.reduce((a, x) => a + x.duration, 0);
+    if (!isFree(data, st, date, t, t + need)) return { error: "Ese horario se acaba de ocupar. Elegí otro, por favor." };
+    const price = items.reduce((a, x) => a + (x.price || 0), 0);
+    segments.push({ staff_id: st.id, start_min: t, end_min: t + need, items, total: price });
+    total += price; t += need;
+  }
+  return { segments, total, end: t, deposit: depositFor(s, total) };
 }
 
 /* ---------- clients ---------- */
 // last visit, next appointment and whether it's time to invite her back
 function clientStats(data, client, now = nowInSalon()) {
   const mine = data.appointments.filter((a) => a.kind !== "block" && a.client_id === client.id);
+  const once = (list) => new Set(list.map((a) => a.group_id || a.id)).size;
   const done = mine.filter((a) => a.status === "confirmed" && (a.date < now.key || (a.date === now.key && a.end_min <= now.minute)));
   const upcoming = mine.filter((a) => !OFF.includes(a.status) && (a.date > now.key || (a.date === now.key && a.end_min > now.minute)))
     .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min);
@@ -325,7 +395,7 @@ function clientStats(data, client, now = nowInSalon()) {
   const since = last ? daysBetween(last, now.key) : null;
   const reminded = client.reminded_at && last && client.reminded_at >= last;
   return {
-    visits: done.length, spent: done.reduce((t, a) => t + (a.total || 0), 0),
+    visits: once(done), spent: done.reduce((t, a) => t + (a.total || 0), 0),
     last, since, next: upcoming[0] || null,
     due: !!last && since >= data.settings.reminder_days && !upcoming.length && !reminded,
     reminded: !!reminded,
@@ -403,27 +473,30 @@ const LocalDB = {
     this.write(d);
   },
   async saveSettings(settings) { const d = this.read(); d.settings = settings; this.write(d); return settings; },
-  async book(req) {
+  async bookGroup(req) {
     const d = this.read();
-    const plan = planBooking(d, req);
-    if (plan.error) throw new Error(plan.error);
+    const check = checkPlan(d, req);
+    if (check.error) throw new Error(check.error);
     const phone = normPhone(req.phone);
     const today = nowInSalon().key;
-    if (d.appointments.filter((a) => a.client_phone === phone && a.date >= today && !OFF.includes(a.status)).length >= 3) {
-      throw new Error("Ya tenés varios turnos reservados. Escribile a Mica por WhatsApp.");
-    }
+    const mine = d.appointments.filter((a) => a.client_phone === phone && a.date >= today && !OFF.includes(a.status));
+    if (new Set(mine.map((a) => a.group_id || a.id)).size >= 3) throw new Error("Ya tenés varios turnos reservados. Escribile a Mica por WhatsApp.");
     let client = d.clients.find((c) => c.phone === phone);
     if (!client) { client = { id: uid(), name: req.name.trim(), phone, notes: null, reminded_at: null, created_at: new Date().toISOString() }; d.clients.push(client); }
-    const appt = {
-      id: uid(), kind: "appointment", client_id: client.id, client_name: req.name.trim(), client_phone: phone,
-      staff_id: plan.staff.id, date: req.date, start_min: req.start, end_min: req.start + plan.duration,
-      items: plan.items, total: plan.total, deposit_due: plan.deposit || null, deposit: null, reminded_at: null,
-      status: d.settings.auto_confirm ? "confirmed" : "pending",
-      notes: req.notes?.trim() || null, source: "web", created_at: new Date().toISOString(),
-    };
-    d.appointments.push(appt);
+    const status = d.settings.auto_confirm ? "confirmed" : "pending";
+    const group = check.segments.length > 1 ? uid() : null;
+    const segments = check.segments.map((sg, i) => {
+      const appt = {
+        id: uid(), kind: "appointment", client_id: client.id, client_name: req.name.trim(), client_phone: phone, date: req.date,
+        ...sg, deposit_due: i === 0 ? check.deposit || null : null, deposit: null, reminded_at: null, group_id: group,
+        status, notes: req.notes?.trim() || null, source: "web", created_at: new Date().toISOString(),
+      };
+      d.appointments.push(appt);
+      return appt;
+    });
     this.write(d);
-    return appt;
+    return { id: segments[0].id, group_id: group, staff_id: segments[0].staff_id, date: req.date, start_min: req.start, end_min: check.end,
+      total: check.total, deposit_due: check.deposit, status, segments };
   },
   async uploadImage(file) {
     const blob = await resizeImage(file, 600);
@@ -484,13 +557,13 @@ function SupabaseDB(url, key) {
     async remove(table, id) { must(await sb.from(table).delete().eq("id", id)); },
     async saveSettings(settings) { must(await sb.from("settings").upsert({ id: 1, data: settings })); return settings; },
     // A plain fetch with keepalive: it is sent immediately and finishes even if the phone jumps to WhatsApp.
-    book(r) {
-      return fetch(`${url}/rest/v1/rpc/book`, {
+    bookGroup(r) {
+      return fetch(`${url}/rest/v1/rpc/book_group`, {
         method: "POST", keepalive: true,
         headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          p_services: r.service_ids, p_staff: r.staff_id || null, p_date: r.date, p_start: r.start,
-          p_name: r.name, p_phone: r.phone, p_notes: r.notes || null, p_addons: r.addon_ids || [],
+          p_plan: r.plan.map(({ staff, services, addons }) => ({ staff, services, addons })),
+          p_date: r.date, p_start: r.start, p_name: r.name, p_phone: r.phone, p_notes: r.notes || null,
         }),
       }).then(async (res) => {
         const body = await res.json().catch(() => ({}));

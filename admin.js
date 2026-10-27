@@ -38,6 +38,14 @@ function relDay(k) {
   return `${DAYS_SHORT[dowOf(k)]} ${shortDate(k)}`;
 }
 
+// the other parts of a booking made with several professionals, in order
+const groupOf = (a) => (a.group_id ? D().appointments.filter((x) => x.group_id === a.group_id).sort(byTime) : [a]);
+// active services that no active professional has, so they can't be booked
+const uncovered = () => {
+  const people = D().staff.filter((s) => s.active);
+  return D().services.filter((sv) => sv.active && !people.some((st) => !st.service_ids || st.service_ids.includes(sv.id)));
+};
+
 // clientStats() per render; cleared whenever data changes
 let statsCache = new Map();
 const cstats = (c) => statsCache.get(c.id) || statsCache.set(c.id, clientStats(D(), c)).get(c.id);
@@ -239,7 +247,7 @@ VIEWS.inicio = () => {
   const due = dueClients();
   const s = D().settings;
   const tomorrow = addDays(now.key, 1);
-  const remind = appts.filter((a) => a.date === tomorrow && live(a)).sort(byTime);
+  const remind = appts.filter((a) => a.date === tomorrow && live(a) && groupOf(a)[0].id === a.id).sort(byTime);
   // recent visits whose client hasn't been asked for a review yet, one per client
   const since = addDays(now.key, -7);
   const asked = new Set();
@@ -247,6 +255,7 @@ VIEWS.inicio = () => {
     .sort((a, b) => byTime(b, a))
     .filter((a) => { const c = clientById(a.client_id); if (!c || c.review_requested_at || asked.has(c.id)) return false; asked.add(c.id); return true; });
   const setup = [!s.deposit_enabled && "la seña", !s.review_url && "tu link de reseñas de Google"].filter(Boolean);
+  const orphan = uncovered();
   return `
     <div class="hello">
       <h1>Hola, <em>${esc(D().settings.owner_name || "Mica")}</em></h1>
@@ -256,6 +265,7 @@ VIEWS.inicio = () => {
       <a class="stat" href="#/agenda" data-act="agenda-today">${ic("calendar")}<b>${today.length}</b><small>Citas hoy</small></a>
       <div class="stat">${ic("chart")}<b>${gs(sum(today.filter((a) => a.status === "confirmed"), (a) => a.total))}</b><small>Ingresos de hoy</small></div>
     </div>
+    ${orphan.length ? `<a class="row-link setup warnlink" href="#/equipo">${ic("user")}<span><b>${orphan.length} servicio${orphan.length === 1 ? "" : "s"} no se puede${orphan.length === 1 ? "" : "n"} reservar</b><small>No los tiene marcados ninguna profesional. Tocá para asignarlos.</small></span>${ic("right")}</a>` : ""}
     ${setup.length ? `<a class="row-link setup" href="#/ajustes">${ic("sliders")}<span><b>Para terminar de configurar</b><small>Cargá ${setup.join(" y ")} en Ajustes.</small></span>${ic("right")}</a>` : ""}
     <a class="row-link" href="#/finanzas">${ic("chart")}<span><b>Control financiero</b><small>Este mes: ${gs(sum(month, (a) => a.total))} · ${month.length} cita${month.length === 1 ? "" : "s"}</small></span>${ic("right")}</a>
     ${pending.length ? section(`Por confirmar <span class="count">${pending.length}</span>`, `<div class="list">${pending.map((a) => apptCard(a, { date: true })).join("")}</div>`) : ""}
@@ -280,7 +290,7 @@ function remindRow(a) {
   const sent = !!a.reminded_at;
   return `<div class="c-row${sent ? " sent" : ""}">
     <button type="button" class="c-link" data-act="appt-open" data-id="${a.id}"><span class="r-time">${hhmm(a.start_min)}</span>
-      <span class="c-main"><b>${esc(a.client_name || "Sin nombre")}</b><small>${esc(itemsText(a))}${depositOpen(a) ? " · sin seña" : ""}</small></span></button>
+      <span class="c-main"><b>${esc(a.client_name || "Sin nombre")}</b><small>${esc(a.group_id ? partsText(a) : itemsText(a))}${depositOpen(a) ? " · sin seña" : ""}</small></span></button>
     ${a.client_phone ? `<a class="btn ${sent ? "btn-ghost" : "btn-wa"} sm" href="${waLink(apptReminderMsg(a), a.client_phone)}" target="_blank" rel="noopener" data-act="appt-remind" data-id="${a.id}">${sent ? "Enviado ✓" : wa + "Recordar"}</a>` : '<small class="muted">sin WhatsApp</small>'}
   </div>`;
 }
@@ -413,19 +423,23 @@ const fill = (tpl, vars) => String(tpl || "").replace(/\{(\w+)\}/g, (m, k) => (k
 // a seña was asked for and hasn't been paid yet
 const depositOpen = (a) => a.deposit_due > 0 && a.deposit == null && live(a);
 
+const partsText = (a) => groupOf(a).map((x) => `${hhmm(x.start_min)} ${itemsText(x).replace(/ · /g, ", ")} con ${firstName(staffById(x.staff_id)?.name)}`).join("; ");
 function confirmMsg(a) {
+  if (a.group_id) a = { ...groupOf(a)[0], items: groupOf(a).flatMap((x) => x.items), deposit_due: groupOf(a)[0].deposit_due };
   const when = `${DAYS[dowOf(a.date)].toLowerCase()} ${shortDate(a.date)} a las ${hhmm(a.start_min)} hs`;
   const first = firstName(a.client_name);
   if (a.status === "cancelled") return `¡Hola ${first}! Tu turno del ${when} quedó cancelado. Cuando quieras, reservás de nuevo acá: ${bookingUrl()} 🌸`;
   const s = D().settings;
   const pay = depositOpen(a) && s.payment_info
     ? `\n\nPara dejarlo confirmado te pido una seña de ${gs(a.deposit_due)}:\n${s.payment_info}\nMandame el comprobante por acá. Si preferís pagar con tarjeta de crédito, débito o QR, avisame y te paso los datos. ¡Gracias!` : "";
-  return `¡Hola ${first}! 🌸 Te confirmo tu turno en Blossom el ${when}${a.items.length ? ` (${itemsText(a).replace(/ · /g, ", ")})` : ""}. ¡Te espero!${pay}`;
+  const what = a.group_id ? ` (${partsText(a)})` : a.items.length ? ` (${itemsText(a).replace(/ · /g, ", ")})` : "";
+  return `¡Hola ${first}! 🌸 Te confirmo tu turno en Blossom el ${when}${what}. ¡Te espero!${pay}`;
 }
 function apptReminderMsg(a) {
+  const first = groupOf(a)[0];
   return fill(D().settings.appt_reminder_text, {
     nombre: firstName(a.client_name), dia: `${DAYS[dowOf(a.date)].toLowerCase()} ${shortDate(a.date)}`,
-    hora: `${hhmm(a.start_min)} hs`, servicios: itemsText(a).replace(/ · /g, ", ") || "tu turno",
+    hora: `${hhmm(first.start_min)} hs`, servicios: a.group_id ? partsText(a) : itemsText(a).replace(/ · /g, ", ") || "tu turno",
   });
 }
 const reviewMsg = (c) => fill(D().settings.review_text, { nombre: firstName(c.name), link: D().settings.review_url });
@@ -442,6 +456,9 @@ function openDetail(id) {
       <div class="det-badges"><span class="badge b-${a.status}">${block ? "Bloqueado" : STATUS[a.status]}</span>${a.source === "web" ? '<span class="badge b-web">Reservó por la web</span>' : ""}</div>
       <p class="det-when">${longDate(a.date)}<br><b>${hhmm(a.start_min)} – ${hhmm(a.end_min)}</b> <span class="muted">· ${dur(a.end_min - a.start_min)}</span></p>
       ${st && (multi() || block) ? `<p class="muted">Con ${esc(st.name)}</p>` : ""}
+      ${a.group_id ? `<div class="parts"><span class="lbl">Reserva con turnos seguidos</span>${groupOf(a).map((x) => `
+        <button type="button" class="part${x.id === a.id ? " on" : ""}" data-act="appt-open" data-id="${x.id}">
+          <b>${hhmm(x.start_min)}–${hhmm(x.end_min)}</b><span>${esc(firstName(staffById(x.staff_id)?.name) || "—")} · ${esc(itemsText(x))}</span></button>`).join("")}</div>` : ""}
       ${block ? (a.notes ? `<p>${esc(a.notes)}</p>` : "") : `
         <ul class="det-items">${a.items.map((i) => `<li><span>${esc(i.name)}</span><small>${i.duration ? dur(i.duration) : ""}</small><b>${i.price != null ? gs(i.price) : "—"}</b></li>`).join("")}
           <li class="tot"><span>Total</span><small></small><b>${gs(a.total)}</b></li></ul>
@@ -704,6 +721,10 @@ function openService(s = null) {
         <label><span class="lbl">Duración (min)</span><input class="field" name="duration" inputmode="numeric" value="${s?.duration ?? ""}" placeholder="Ej.: 60"></label>
       </div>
       <label class="check"><input type="checkbox" name="active"${!s || s.active ? " checked" : ""}> Mostrar en la página de reservas</label>
+      ${D().staff.filter((st) => st.active).length > 1 ? `<span class="lbl">¿Quién lo hace?</span>
+        <div class="checks">${D().staff.filter((st) => st.active).sort(bySort).map((st) => `<label class="check">
+          <input type="checkbox" name="who" value="${st.id}"${!st.service_ids || (s ? st.service_ids.includes(s.id) : false) ? " checked" : ""}${st.service_ids ? "" : " disabled"}>
+          ${esc(st.name)}${st.service_ids ? "" : " <small class=\"muted\">(hace todos)</small>"}</label>`).join("")}</div>` : ""}
       <p class="form-error" role="alert" hidden></p>
       <div class="dlg-foot"><button class="btn btn-rose wide" type="submit">Guardar</button></div>
       ${s ? `<button class="link-danger" type="button" data-act="svc-delete" data-id="${s.id}">${ic("trash")}Eliminar servicio</button>` : ""}
@@ -715,13 +736,21 @@ async function saveService(form) {
   if (!name) return formError("Poné un nombre.");
   const prev = svcById(form.dataset.id);
   const catId = f.get("category_id") || null;
+  const who = form.querySelector('[name="who"]') ? f.getAll("who") : null;
   await run(async () => {
-    await save("services", {
+    const sv = await save("services", {
       id: prev?.id || uid(), category_id: catId, name, description: f.get("description").trim() || null,
       price: num(f.get("price")), duration: num(f.get("duration")) || null, image: A.svcImage,
       active: f.get("active") === "on",
       sort: prev?.sort ?? Math.max(-1, ...D().services.map((x) => x.sort ?? 0)) + 1,
     });
+    // keep each professional's list in step with "¿Quién lo hace?"
+    if (who) {
+      for (const st of D().staff.filter((x) => x.active && x.service_ids)) {
+        const has = st.service_ids.includes(sv.id), want = who.includes(st.id);
+        if (has !== want) await save("staff", { ...st, service_ids: want ? [...st.service_ids, sv.id] : st.service_ids.filter((id) => id !== sv.id) });
+      }
+    }
     closeDlg(); render();
   }, "Servicio guardado ✓");
 }
@@ -1073,7 +1102,15 @@ async function saveSpecial(form) {
 /* ---- Profesionales ---- */
 VIEWS.equipo = () => `
   <div class="page-head"><h1>Profesionales</h1><button class="btn btn-rose sm" type="button" data-act="staff-new">${ic("plus")}Agregar</button></div>
-  <p class="hint">Si hay más de una profesional activa, la página de reservas pregunta «¿Con quién?». Con una sola, no pregunta nada.</p>
+  <p class="hint">Cada profesional tiene marcados los servicios que hace. Si la clienta elige servicios de dos profesionales, la página arma turnos seguidos: primero con una y después con la otra. Cuando una sola hace todo y hay más de una disponible, pregunta «¿Con quién?».</p>
+  ${(() => {
+    const orphan = uncovered();
+    const people = D().staff.filter((s) => s.active && s.service_ids).sort(bySort);
+    return orphan.length ? `<div class="remind">
+      <p>${ic("bell")}<span><b>${orphan.length} servicio${orphan.length === 1 ? "" : "s"} sin profesional</b><small>No se pueden reservar hasta que alguien los tenga: ${orphan.map((x) => esc(x.name)).join(", ")}.</small></span></p>
+      <div class="row">${people.map((st) => `<button class="btn btn-rose sm" type="button" data-act="staff-take" data-id="${st.id}">Los hace ${esc(firstName(st.name))}</button>`).join("")}</div>
+    </div>` : "";
+  })()}
   <div class="list">${[...D().staff].sort(bySort).map((s) => `
     <button type="button" class="c-row${s.active ? "" : " off"}" data-act="staff-edit" data-id="${s.id}">
       <span class="avatar">${esc(s.name.trim()[0] || "?")}</span>
@@ -1253,9 +1290,13 @@ const ACT = {
   "appt-new": () => openEditor(),
   "block-new": () => openBlock(),
   "appt-edit": (el) => { const a = D().appointments.find((x) => x.id === el.dataset.id); a.kind === "block" ? openBlock(a) : openEditor(a); },
+  // confirming or cancelling a booking with several professionals changes all its parts
   "appt-status": (el) => {
     const a = D().appointments.find((x) => x.id === $(".det", $("#dlg")).dataset.id);
-    run(async () => { await save("appointments", { ...a, status: el.dataset.s }); render(); openDetail(a.id); }, `Cita: ${STATUS[el.dataset.s].toLowerCase()} ✓`);
+    run(async () => {
+      for (const x of groupOf(a)) await save("appointments", { ...x, status: el.dataset.s });
+      render(); openDetail(a.id);
+    }, `Cita: ${STATUS[el.dataset.s].toLowerCase()} ✓`);
   },
   "appt-delete": (el) => {
     if (!confirm("¿Eliminar esta cita? No se puede deshacer. Si la clienta no vino o canceló, mejor marcalo así para que quede en su historial.")) return;
@@ -1306,7 +1347,10 @@ const ACT = {
   // opening WhatsApp marks the reminder or the review request as sent
   "appt-remind": (el) => {
     const a = D().appointments.find((x) => x.id === el.dataset.id);
-    run(async () => { await save("appointments", { ...a, reminded_at: new Date().toISOString() }); render(); if (A.dlg === "detail") openDetail(a.id); });
+    run(async () => {
+      for (const x of groupOf(a)) await save("appointments", { ...x, reminded_at: new Date().toISOString() });
+      render(); if (A.dlg === "detail") openDetail(a.id);
+    });
   },
   "review-ask": (el) => {
     const c = clientById(el.dataset.id);
@@ -1354,6 +1398,12 @@ const ACT = {
   "special-new": () => openSpecial(),
   "special-delete": (el) => run(async () => { await remove("exceptions", el.dataset.id); render(); }, "Quitado"),
   "staff-new": () => openStaff(),
+  "staff-take": (el) => {
+    const st = staffById(el.dataset.id);
+    const ids = uncovered().map((x) => x.id);
+    run(async () => { await save("staff", { ...st, service_ids: [...new Set([...(st.service_ids || []), ...ids])] }); render(); },
+      `Listo: ${ids.length} servicio${ids.length === 1 ? "" : "s"} para ${firstName(st.name)} ✓`);
+  },
   "staff-edit": (el) => openStaff(staffById(el.dataset.id)),
   "staff-delete": (el) => {
     const s = staffById(el.dataset.id);

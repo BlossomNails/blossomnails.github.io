@@ -71,6 +71,21 @@ alter table public.appointments add column if not exists reminded_at timestamptz
 alter table public.clients add column if not exists review_requested_at date;     -- Google review asked
 alter table public.appointments add column if not exists group_id uuid;           -- turns booked together, one after another
 create index if not exists appointments_group_idx on public.appointments (group_id);
+alter table public.clients add column if not exists birthday text                 -- "MM-DD", without the year
+  check (birthday ~ '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+alter table public.clients add column if not exists birthday_greeted_at date;     -- birthday message sent
+
+-- what the salon spends (materiales, alquiler, ...), for the real profit in Control financiero
+create table if not exists public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  category text not null default 'Otros',
+  description text,
+  amount int not null check (amount >= 0),
+  fixed boolean not null default false,  -- repeats every month (alquiler, internet, ...)
+  created_at timestamptz not null default now()
+);
+create index if not exists expenses_date_idx on public.expenses (date);
 
 -- extras the client can add to a service (francesitas, largor 3, ...)
 create table if not exists public.addons (
@@ -123,6 +138,7 @@ alter table public.exceptions enable row level security;
 alter table public.admins enable row level security;
 alter table public.addons enable row level security;
 alter table public.gallery enable row level security;
+alter table public.expenses enable row level security;
 
 -- the booking page can read the catalogue, hours and special days; only Mica can change them
 drop policy if exists "read settings" on public.settings;
@@ -165,6 +181,8 @@ drop policy if exists "admin clients" on public.clients;
 create policy "admin clients" on public.clients for all using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "admin appointments" on public.appointments;
 create policy "admin appointments" on public.appointments for all using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "admin expenses" on public.expenses;
+create policy "admin expenses" on public.expenses for all using (public.is_admin()) with check (public.is_admin());
 
 drop policy if exists "own admin row" on public.admins;
 create policy "own admin row" on public.admins for select using (user_id = auth.uid());
@@ -172,8 +190,9 @@ create policy "own admin row" on public.admins for select using (user_id = auth.
 grant select on public.settings, public.categories, public.services, public.staff, public.exceptions,
   public.addons, public.gallery to anon, authenticated;
 grant all on public.settings, public.categories, public.services, public.staff, public.exceptions,
-  public.clients, public.appointments, public.addons, public.gallery to authenticated;
+  public.clients, public.appointments, public.addons, public.gallery, public.expenses to authenticated;
 grant select on public.admins to authenticated;
+revoke all on public.expenses from anon;  -- her accounts: not reachable with the public key at all
 
 -- ============ booking page functions ============
 -- taken times, without any client details, only as far ahead as clients can book

@@ -69,6 +69,8 @@ alter table public.appointments add column if not exists deposit_due int;       
 alter table public.appointments add column if not exists deposit int;             -- seña received; null = not yet
 alter table public.appointments add column if not exists reminded_at timestamptz; -- "tu turno es mañana" sent
 alter table public.clients add column if not exists review_requested_at date;     -- Google review asked
+alter table public.appointments add column if not exists group_id uuid;           -- turns booked together, one after another
+create index if not exists appointments_group_idx on public.appointments (group_id);
 
 -- extras the client can add to a service (francesitas, largor 3, ...)
 create table if not exists public.addons (
@@ -261,7 +263,7 @@ begin
   if p_date = v_today and p_start < v_minute + coalesce((s ->> 'min_notice')::int, 60) then
     raise exception 'Ese horario ya pasó o está muy cerca. Elegí otro.';
   end if;
-  if (select count(*) from public.appointments a where a.client_phone = v_phone and a.date >= v_today
+  if (select count(distinct coalesce(a.group_id, a.id)) from public.appointments a where a.client_phone = v_phone and a.date >= v_today
         and a.status not in ('cancelled', 'no_show')) >= 3 then
     raise exception 'Ya tenés varios turnos reservados. Escribile a Mica por WhatsApp.';
   end if;
@@ -320,6 +322,152 @@ begin
 end;
 $$;
 
+-- A web booking that may involve several professionals, one after another
+-- (e.g. nails with Mica, then hair with Lore). The page proposes the plan; everything is checked here:
+-- each person does their services, is working then and is free. Prices come from the catalogue.
+-- p_plan: [{"staff": "mica", "services": ["mani-semi"], "addons": ["francesitas"]}, ...] in order.
+create or replace function public.book_group(
+  p_plan jsonb, p_date date, p_start int, p_name text, p_phone text, p_notes text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  s jsonb := coalesce((select data from public.settings where id = 1), '{}');
+  v_now timestamp := now() at time zone 'America/Asuncion';
+  v_today date := v_now::date;
+  v_minute int := extract(hour from v_now)::int * 60 + extract(minute from v_now)::int;
+  v_default int := coalesce((s ->> 'default_duration')::int, 60);
+  v_phone text := regexp_replace(coalesce(p_phone, ''), '\D', '', 'g');
+  v_name text := trim(coalesce(p_name, ''));
+  v_n int := case when jsonb_typeof(p_plan) = 'array' then jsonb_array_length(p_plan) else 0 end;
+  v_seg jsonb; v_staff public.staff; v_services text[]; v_addons text[]; v_cats text[];
+  v_items jsonb; v_extra jsonb; v_price int; v_extra_price int; v_dur int; v_extra_min int; v_found int;
+  v_blocks jsonb; v_t int := p_start; v_rows jsonb := '[]'; v_total int := 0; v_deposit int := 0;
+  v_client uuid; v_group uuid; v_status text; v_id uuid; v_out jsonb := '[]'; v_k int := 0;
+begin
+  if v_phone ~ '^0\d{9}$' then v_phone := '595' || substr(v_phone, 2);
+  elsif v_phone ~ '^9\d{8}$' then v_phone := '595' || v_phone; end if;
+
+  if v_name = '' or length(v_name) > 80 then raise exception 'Falta tu nombre.'; end if;
+  if length(v_phone) < 8 or length(v_phone) > 15 then raise exception 'Revisá tu número de WhatsApp.'; end if;
+  if length(coalesce(p_notes, '')) > 500 then raise exception 'La nota es muy larga.'; end if;
+  if v_n not between 1 and 4 then raise exception 'Elegí al menos un servicio.'; end if;
+  if p_start is null or p_start not between 0 and 1439 then raise exception 'Elegí un horario.'; end if;
+  if p_date < v_today or p_date > v_today + coalesce((s ->> 'booking_days')::int, 14) then
+    raise exception 'Ese día no está disponible para reservar.';
+  end if;
+  if p_date = v_today and p_start < v_minute + coalesce((s ->> 'min_notice')::int, 60) then
+    raise exception 'Ese horario ya pasó o está muy cerca. Elegí otro.';
+  end if;
+  if (select count(distinct coalesce(a.group_id, a.id)) from public.appointments a where a.client_phone = v_phone and a.date >= v_today
+        and a.status not in ('cancelled', 'no_show')) >= 3 then
+    raise exception 'Ya tenés varios turnos reservados. Escribile a Mica por WhatsApp.';
+  end if;
+
+  -- lock everyone involved, always in the same order
+  perform pg_advisory_xact_lock(hashtext(q.id || p_date::text))
+  from (select distinct x ->> 'staff' as id from jsonb_array_elements(p_plan) x order by 1) q;
+
+  for v_seg in select value from jsonb_array_elements(p_plan) loop
+    select * into v_staff from public.staff st where st.id = v_seg ->> 'staff' and st.active;
+    if not found then raise exception 'La agenda cambió. Recargá la página y elegí de nuevo.'; end if;
+    v_services := array(select jsonb_array_elements_text(coalesce(v_seg -> 'services', '[]')));
+    v_addons := array(select jsonb_array_elements_text(coalesce(v_seg -> 'addons', '[]')));
+    if cardinality(v_services) not between 1 and 10 or cardinality(v_addons) > 10 then
+      raise exception 'Elegí al menos un servicio.';
+    end if;
+    if v_staff.service_ids is not null and not (v_services <@ v_staff.service_ids) then
+      raise exception 'Algún servicio ya no está disponible. Recargá la página.';
+    end if;
+
+    select jsonb_agg(jsonb_build_object('service_id', sv.id, 'name', sv.name, 'price', sv.price,
+             'duration', coalesce(sv.duration, v_default)) order by u.ord),
+           coalesce(sum(coalesce(sv.price, 0)), 0), coalesce(sum(coalesce(sv.duration, v_default)), 0), count(*)
+      into v_items, v_price, v_dur, v_found
+    from unnest(v_services) with ordinality as u(id, ord)
+    join public.services sv on sv.id = u.id and sv.active;
+    if v_found <> cardinality(v_services) then
+      raise exception 'Algún servicio ya no está disponible. Recargá la página.';
+    end if;
+
+    if cardinality(v_addons) > 0 then
+      select array_agg(distinct sv.category_id) into v_cats from public.services sv where sv.id = any(v_services);
+      select coalesce(jsonb_agg(jsonb_build_object('addon_id', ad.id, 'name', ad.name, 'price', ad.price,
+               'duration', ad.duration) order by u.ord), '[]'),
+             coalesce(sum(ad.price), 0), coalesce(sum(ad.duration), 0), count(*)
+        into v_extra, v_extra_price, v_extra_min, v_found
+      from unnest(v_addons) with ordinality as u(id, ord)
+      join public.addons ad on ad.id = u.id and ad.active and (ad.category_ids is null or ad.category_ids && v_cats);
+      if v_found <> cardinality(v_addons) then
+        raise exception 'Algún adicional ya no está disponible. Recargá la página.';
+      end if;
+      v_items := v_items || v_extra;
+      v_price := v_price + v_extra_price;
+      v_dur := v_dur + v_extra_min;
+    end if;
+
+    -- this person's hours that day: their special day > the salon's special day > weekly hours
+    v_blocks := null;
+    select e.blocks into v_blocks from public.exceptions e where e.date = p_date and e.staff_id = v_staff.id limit 1;
+    if v_blocks is null then
+      select e.blocks into v_blocks from public.exceptions e where e.date = p_date and e.staff_id is null limit 1;
+    end if;
+    if v_blocks is null then
+      v_blocks := coalesce(v_staff.hours, s -> 'hours') -> extract(dow from p_date)::int;
+    end if;
+    -- same rule as book(): the day's closing time is the last start time
+    if not exists (select 1 from jsonb_array_elements(coalesce(v_blocks, '[]')) b
+                   where (b ->> 0)::int <= v_t
+                     and (v_t + v_dur <= (b ->> 1)::int
+                          or ((b ->> 1)::int = (select max((x ->> 1)::int) from jsonb_array_elements(v_blocks) x)
+                              and v_t <= (b ->> 1)::int)))
+       or exists (select 1 from public.appointments a
+                  where a.staff_id = v_staff.id and a.date = p_date and a.status not in ('cancelled', 'no_show')
+                    and a.start_min < v_t + v_dur and a.end_min > v_t) then
+      raise exception 'Ese horario se acaba de ocupar. Elegí otro, por favor.';
+    end if;
+
+    v_rows := v_rows || jsonb_build_array(jsonb_build_object('staff_id', v_staff.id, 'start_min', v_t,
+                'end_min', v_t + v_dur, 'items', v_items, 'total', v_price));
+    v_total := v_total + v_price;
+    v_t := v_t + v_dur;
+  end loop;
+
+  if coalesce((s ->> 'deposit_enabled')::boolean, false) and coalesce((s ->> 'deposit_value')::int, 0) > 0 then
+    if s ->> 'deposit_type' = 'percent' then
+      v_deposit := (round(v_total * (s ->> 'deposit_value')::numeric / 100000) * 1000)::int;
+    elsif v_total > 0 then
+      v_deposit := least((s ->> 'deposit_value')::int, v_total);
+    else
+      v_deposit := (s ->> 'deposit_value')::int;
+    end if;
+  end if;
+
+  insert into public.clients (name, phone) values (v_name, v_phone)
+  on conflict (phone) do update set phone = excluded.phone
+  returning id into v_client;
+
+  v_status := case when coalesce((s ->> 'auto_confirm')::boolean, false) then 'confirmed' else 'pending' end;
+  v_group := case when v_n > 1 then gen_random_uuid() end;
+  for v_seg in select value from jsonb_array_elements(v_rows) loop
+    insert into public.appointments (kind, client_id, client_name, client_phone, staff_id, date, start_min, end_min,
+                                     items, total, deposit_due, status, notes, source, group_id)
+    values ('appointment', v_client, v_name, v_phone, v_seg ->> 'staff_id', p_date, (v_seg ->> 'start_min')::int,
+            (v_seg ->> 'end_min')::int, v_seg -> 'items', (v_seg ->> 'total')::int,
+            case when v_k = 0 then nullif(v_deposit, 0) end, v_status,
+            nullif(trim(coalesce(p_notes, '')), ''), 'web', v_group)
+    returning id into v_id;
+    v_out := v_out || jsonb_build_array(v_seg || jsonb_build_object('id', v_id));
+    v_k := v_k + 1;
+  end loop;
+
+  return jsonb_build_object('id', v_out -> 0 ->> 'id', 'group_id', v_group, 'staff_id', v_out -> 0 ->> 'staff_id',
+                            'date', p_date, 'start_min', p_start, 'end_min', v_t, 'total', v_total,
+                            'deposit_due', v_deposit, 'status', v_status, 'segments', v_out);
+end;
+$$;
+
+revoke all on function public.book_group(jsonb, date, int, text, text, text) from public;
+grant execute on function public.book_group(jsonb, date, int, text, text, text) to anon, authenticated;
 revoke all on function public.busy_times(date, date) from public;
 revoke all on function public.book(text[], text, date, int, text, text, text, text[]) from public;
 grant execute on function public.busy_times(date, date) to anon, authenticated;

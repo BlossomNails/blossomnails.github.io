@@ -18,6 +18,9 @@ const byTime = (a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_m
 const activeStaff = () => D().staff.filter((s) => s.active).sort(bySort);
 const multi = () => activeStaff().length > 1;
 const staffById = (id) => D().staff.find((s) => s.id === id);
+// her code for mi-agenda.html and her commission, only visible here
+const privOf = (id) => D().staff_private.find((p) => p.id === id) || { id, code: null, commission: null };
+const commissionOf = (a) => { const c = privOf(a.staff_id).commission; return c == null ? 0 : Math.round(((a.total || 0) * c) / 100); };
 const clientById = (id) => D().clients.find((c) => c.id === id);
 const svcById = (id) => D().services.find((s) => s.id === id);
 const live = (a) => !OFF.includes(a.status);
@@ -205,7 +208,10 @@ async function remove(table, id) {
   await A.db.remove(table, id);
   A.data[table] = A.data[table].filter((x) => x.id !== id);
   if (table === "clients") A.data.appointments.forEach((a) => { if (a.client_id === id) a.client_id = null; });
-  if (table === "staff") A.data.exceptions = A.data.exceptions.filter((e) => e.staff_id !== id);
+  if (table === "staff") {
+    A.data.exceptions = A.data.exceptions.filter((e) => e.staff_id !== id);
+    A.data.staff_private = A.data.staff_private.filter((p) => p.id !== id);
+  }
 }
 async function saveSettings(patch) {
   const s = { ...D().settings, ...patch };
@@ -1171,12 +1177,17 @@ VIEWS.equipo = () => `
       <div class="row">${people.map((st) => `<button class="btn btn-rose sm" type="button" data-act="staff-take" data-id="${st.id}">Los hace ${esc(firstName(st.name))}</button>`).join("")}</div>
     </div>` : "";
   })()}
-  <div class="list">${[...D().staff].sort(bySort).map((s) => `
+  <div class="list">${[...D().staff].sort(bySort).map((s) => {
+    const p = privOf(s.id);
+    return `
     <button type="button" class="c-row${s.active ? "" : " off"}" data-act="staff-edit" data-id="${s.id}">
       <span class="avatar">${esc(s.name.trim()[0] || "?")}</span>
       <span class="c-main"><b>${esc(s.name)}${s.active ? "" : " · inactiva"}</b><small>${esc(s.role || "")}</small>
-        <small>${s.service_ids ? `${s.service_ids.length} servicio${s.service_ids.length === 1 ? "" : "s"}` : "Todos los servicios"} · ${s.hours ? "horario propio" : "horario del salón"}</small></span>
-      ${ic("right")}</button>`).join("")}</div>`;
+        <small>${s.service_ids ? `${s.service_ids.length} servicio${s.service_ids.length === 1 ? "" : "s"}` : "Todos los servicios"} · ${s.hours ? "horario propio" : "horario del salón"}</small>
+        ${p.code || p.commission != null ? `<small>${[p.code && "con acceso a su agenda", p.commission != null && `comisión ${p.commission}%`].filter(Boolean).join(" · ")}</small>` : ""}</span>
+      ${ic("right")}</button>`;
+  }).join("")}</div>
+  <p class="hint">Cada profesional puede tener su propia agenda en el celular: ve sus turnos, sus horarios libres y cuánto lleva ganado con su comisión. No puede cambiar nada ni ve los teléfonos de las clientas. Se activa desde su ficha, con «Crear su acceso».</p>`;
 
 function openStaff(s = null) {
   const cats = [...D().categories].sort(bySort);
@@ -1195,6 +1206,10 @@ function openStaff(s = null) {
       <span class="lbl">Horario</span>
       <label class="check"><input type="checkbox" name="own" data-toggle="#st-hours"${s?.hours ? " checked" : ""}> Tiene su propio horario</label>
       <div id="st-hours"${s?.hours ? "" : " hidden"}>${hoursEditor(s?.hours || D().settings.hours, "h-staff")}</div>
+      <label><span class="lbl">Comisión <small>· % de cada turno, opcional</small></span>
+        <input class="field" name="commission" inputmode="numeric" maxlength="3" placeholder="Ej.: 40" value="${privOf(s?.id).commission ?? ""}"></label>
+      <span class="lbl">Su agenda en el celular</span>
+      <div id="st-access">${s ? accessBlock(s) : '<p class="hint">Guardala primero y después creás su acceso.</p>'}</div>
       <p class="form-error" role="alert" hidden></p>
       <div class="dlg-foot"><button class="btn btn-rose wide" type="submit">Guardar</button></div>
       ${s ? `<button class="link-danger" type="button" data-act="staff-delete" data-id="${s.id}">${ic("trash")}Eliminar profesional</button>` : ""}
@@ -1211,14 +1226,40 @@ async function saveStaff(form) {
   if (f.get("own")) { const r = readHours($("#h-staff")); if (r.error) return formError(r.error); hours = r.hours; }
   const ids = f.getAll("svc");
   if (!f.get("all") && !ids.length) return formError("Elegí al menos un servicio, o marcá «Hace todos los servicios».");
+  const commission = num(f.get("commission"));
+  if (commission > 100) return formError("La comisión es un porcentaje: de 0 a 100.");
   await run(async () => {
-    await save("staff", {
+    const st = await save("staff", {
       id: prev?.id || uid(), name, role: f.get("role").trim() || null, active,
       sort: prev?.sort ?? Math.max(-1, ...D().staff.map((x) => x.sort ?? 0)) + 1,
       hours, service_ids: f.get("all") ? null : ids,
     });
+    const p = privOf(st.id);
+    if (p.commission !== commission) await save("staff_private", { ...p, commission });
     closeDlg(); render();
   }, "Guardado ✓");
+}
+
+// her personal link to mi-agenda.html, with the code after "#"
+const agendaLink = (code) => `${bookingUrl()}mi-agenda.html#${code}`;
+function accessBlock(s) {
+  const { code } = privOf(s.id);
+  const first = esc(firstName(s.name));
+  if (!code) {
+    return `<p class="hint">Con su link, ${first} ve en el celular sus turnos, sus horarios libres y cuánto lleva ganado. No puede cambiar nada ni ve los teléfonos de las clientas.</p>
+      <button class="btn btn-ghost" type="button" data-act="staff-access" data-id="${s.id}">${ic("lock")}Crear su acceso</button>`;
+  }
+  const msg = `¡Hola ${firstName(s.name)}! 🌸 Este es tu acceso a tu agenda de Blossom: ${agendaLink(code)}\n\nAhí ves tus turnos, tus horarios libres y lo que vas ganando. Guardalo en la pantalla de inicio del celu para tenerlo a mano. Si te pide código: ${code}`;
+  return `<div class="access">
+      <p class="hint">${first} entra con este link${s.active ? "" : " (mientras esté inactiva no funciona)"}. Código: <b>${code}</b></p>
+      <code>${esc(agendaLink(code))}</code>
+      <div class="row">
+        <a class="btn btn-wa sm" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">${wa}Mandárselo</a>
+        <button class="btn btn-ghost sm" type="button" data-act="staff-access-copy" data-id="${s.id}">${ic("copy")}Copiar</button>
+        <button class="btn btn-ghost sm" type="button" data-act="staff-access" data-id="${s.id}">Cambiar link</button>
+        <button class="btn btn-ghost sm" type="button" data-act="staff-access-off" data-id="${s.id}">Quitar acceso</button>
+      </div>
+    </div>`;
 }
 
 /* ---- Control financiero ---- */
@@ -1249,6 +1290,10 @@ VIEWS.finanzas = () => {
   };
   const bySvc = tally((a) => a.items.map((i) => [i.service_id || i.name, i.name, i.price]));
   const byStaff = tally((a) => [[a.staff_id || "-", staffById(a.staff_id)?.name || "Sin asignar", a.total]]);
+  // what each professional earned with her commission, on the same turns
+  const owed = [...D().staff].sort(bySort).map((st) => ({ st, c: privOf(st.id).commission, list: done.filter((a) => a.staff_id === st.id) }))
+    .filter((x) => x.c != null && x.list.length)
+    .map(({ st, c, list }) => ({ label: `${st.name} · ${c}%`, n: list.length, total: sum(list, commissionOf) }));
   const byDay = tally((a) => [[a.date, a.date, a.total]]).sort((a, b) => a.label.localeCompare(b.label));
   const max = Math.max(1, ...byDay.map((d) => d.total));
   const table = (rows) => `<div class="tbl">${rows.map((r) => `<div><span>${esc(r.label)}</span><small>${r.n}</small><b>${gs(r.total)}</b></div>`).join("")}</div>`;
@@ -1279,7 +1324,8 @@ VIEWS.finanzas = () => {
       `<button class="btn btn-ghost sm" type="button" data-act="exp-new">${ic("plus")}Agregar gasto</button>`)}
     ${byDay.length ? section("Por día", `<div class="bars">${byDay.map((d) => `<div class="bar"><span>${DAYS_SHORT[dowOf(d.label)]} ${shortDate(d.label)}</span><i style="--w:${(d.total / max) * 100}%"></i><b>${gs(d.total)}</b></div>`).join("")}</div>`) : ""}
     ${bySvc.length ? section("Por servicio", table(bySvc)) : empty("Todavía no hay ingresos este mes.")}
-    ${multi() && byStaff.length ? section("Por profesional", table(byStaff)) : ""}`;
+    ${multi() && byStaff.length ? section("Por profesional", table(byStaff)) : ""}
+    ${owed.length ? section("Comisiones", `<p class="hint">Lo que le toca a cada una por sus turnos realizados del mes. Cuando se lo pagues, cargalo como gasto en «Sueldos y comisiones».</p>${table(owed)}`) : ""}`;
 };
 
 const EXP_CATS = ["Materiales", "Alquiler", "Luz, agua e internet", "Sueldos y comisiones", "Publicidad", "Equipos y muebles", "Otros"];
@@ -1588,6 +1634,22 @@ const ACT = {
     const n = D().appointments.filter((a) => a.staff_id === s.id && live(a) && !isPast(a)).length;
     if (!confirm(`¿Eliminar a ${s.name}?${n ? ` Tiene ${n} cita${n === 1 ? "" : "s"} próximas que van a quedar sin profesional.` : ""} Si solo deja de atender por un tiempo, mejor desactivala.`)) return;
     run(async () => { await remove("staff", s.id); closeDlg(); render(); }, "Eliminada");
+  },
+  // her link to mi-agenda.html: a new code makes the old link stop working
+  "staff-access": (el) => {
+    const s = staffById(el.dataset.id), p = privOf(s.id);
+    if (p.code && !confirm(`¿Cambiar el link de ${firstName(s.name)}? El que tiene ahora deja de funcionar y le tenés que mandar el nuevo.`)) return;
+    run(async () => { await save("staff_private", { ...p, code: newStaffCode() }); $("#st-access").innerHTML = accessBlock(s); render(); },
+      p.code ? "Link nuevo listo ✓" : "Acceso creado ✓");
+  },
+  "staff-access-off": (el) => {
+    const s = staffById(el.dataset.id);
+    if (!confirm(`¿Quitarle el acceso a ${firstName(s.name)}? Su link deja de funcionar.`)) return;
+    run(async () => { await save("staff_private", { ...privOf(s.id), code: null }); $("#st-access").innerHTML = accessBlock(s); render(); }, "Acceso quitado");
+  },
+  "staff-access-copy": async (el) => {
+    const url = agendaLink(privOf(el.dataset.id).code);
+    try { await navigator.clipboard.writeText(url); toast("Link copiado ✓"); } catch { toast(url, 5000); }
   },
 
   // money, settings

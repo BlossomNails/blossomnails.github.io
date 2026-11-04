@@ -1254,7 +1254,7 @@ function accessBlock(s) {
       <p class="hint">${first} entra con este link${s.active ? "" : " (mientras esté inactiva no funciona)"}. Código: <b>${code}</b></p>
       <code>${esc(agendaLink(code))}</code>
       <div class="row">
-        <a class="btn btn-wa sm" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">${wa}Mandárselo</a>
+        <a class="btn btn-wa sm" href="https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">${wa}Mandárselo</a>
         <button class="btn btn-ghost sm" type="button" data-act="staff-access-copy" data-id="${s.id}">${ic("copy")}Copiar</button>
         <button class="btn btn-ghost sm" type="button" data-act="staff-access" data-id="${s.id}">Cambiar link</button>
         <button class="btn btn-ghost sm" type="button" data-act="staff-access-off" data-id="${s.id}">Quitar acceso</button>

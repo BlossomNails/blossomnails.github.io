@@ -11,7 +11,13 @@
   <meta property="og:type" content="website">
   <meta property="og:title" content="Blossom Beauty Salon · Reservá tu turno">
   <meta property="og:description" content="Tu momento, tus detalles, tu estilo 🌸 Uñas, pestañas y peluquería en Fernando de la Mora.">
-  <meta property="og:image" content="images/logo-512.png">
+  <!-- previews in WhatsApp and Instagram need full addresses -->
+  <meta property="og:url" content="https://blossomnails.github.io/">
+  <meta property="og:image" content="https://purljgouavregcncxogj.supabase.co/storage/v1/object/public/media/site/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Uñas esculpidas con diseño de flores, el logo de Blossom y Mica con tips de colores">
+  <meta name="twitter:card" content="summary_large_image">
   <meta property="og:locale" content="es_PY">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,7 +38,9 @@
     "name": "Blossom Beauty Salon",
     "description": "Uñas, pestañas y peluquería en Fernando de la Mora, zona sur.",
     "telephone": "+595981676610",
-    "image": "images/logo-512.png",
+    "url": "https://blossomnails.github.io/",
+    "image": "https://purljgouavregcncxogj.supabase.co/storage/v1/object/public/media/site/og.jpg",
+    "logo": "https://blossomnails.github.io/images/logo-512.png",
     "priceRange": "Gs. 35.000 – Gs. 180.000",
     "currenciesAccepted": "PYG",
     "address": {
@@ -174,10 +182,12 @@
       <p class="slot-note" id="slot-note"></p>
 
       <h4><label for="name">Tu nombre</label></h4>
-      <input class="field" id="name" autocomplete="name" placeholder="Ej.: Ana Benítez" maxlength="80">
+      <input class="field" id="name" name="name" autocomplete="name" placeholder="Ej.: Ana Benítez…" maxlength="80" aria-describedby="name-error">
+      <p class="field-error" id="name-error" hidden></p>
 
       <h4><label for="phone">Tu WhatsApp</label> <small>· para confirmarte el turno</small></h4>
-      <input class="field" id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="Ej.: 0981 123 456" maxlength="20">
+      <input class="field" id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="Ej.: 0981 123 456…" maxlength="20" aria-describedby="phone-error">
+      <p class="field-error" id="phone-error" hidden></p>
 
       <h4><label for="notes">¿Algo más?</label> <small>· opcional</small></h4>
       <textarea class="field" id="notes" rows="2" maxlength="500" placeholder="Ej.: quiero un diseño como el de la foto, color nude…"></textarea>

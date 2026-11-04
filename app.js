@@ -365,21 +365,31 @@ function initReservas() {
     renderSheet();
     root.classList.add("sheet-open");
     focus.open();
+    // a history entry for the sheet, so the phone's Back button closes it instead of leaving the page
+    if (!history.state?.sheet) try { history.pushState({ sheet: true }, ""); } catch {}
     setTimeout(() => $("#sheet .close").focus(), 50);
     // fetch fresh free times while she chooses
     loadData().then(() => { if (root.classList.contains("sheet-open") && !$("#sheet-form").hidden) renderSheet(); }).catch(() => {});
   }
-  function closeSheet() {
+  function closeSheet({ fromHistory = false } = {}) {
     root.classList.remove("sheet-open");
     focus.close();
     if (!$("#sheet-done").hidden) showForm();
     (cart.length ? $("#open-sheet") : $(".add"))?.focus({ preventScroll: true });
+    if (!fromHistory && history.state?.sheet) history.back();
   }
+  addEventListener("popstate", () => {
+    if (root.classList.contains("sheet-open") && !history.state?.sheet) closeSheet({ fromHistory: true });
+  });
+  // after a reload the entry is still there with the sheet closed: forget it
+  if (history.state?.sheet) try { history.replaceState(null, ""); } catch {}
   function showForm() {
     $("#sheet-form").hidden = false;
     $("#sheet-done").hidden = true;
     $("#sheet-title").textContent = "Tu reserva";
     $("#book-error").hidden = true;
+    $$(".field-error", sheet).forEach((x) => { x.hidden = true; });
+    $$("[aria-invalid]", sheet).forEach((x) => x.removeAttribute("aria-invalid"));
   }
 
   $("#open-sheet").addEventListener("click", openSheet);
@@ -447,6 +457,10 @@ function initReservas() {
     $("#wa-instead").href = href;
     return href;
   }
+  // the field's error goes away as soon as she starts fixing it
+  for (const f of ["#name", "#phone"]) {
+    $(f).addEventListener("input", () => { $(f).removeAttribute("aria-invalid"); $(`${f}-error`).hidden = true; });
+  }
   $("#name").addEventListener("input", paintLinks);
   $("#notes").addEventListener("input", paintLinks);
 
@@ -456,7 +470,16 @@ function initReservas() {
     const err = $("#book-error");
     const name = $("#name").value.trim();
     const phone = normPhone($("#phone").value);
-    const stop = (msg, field) => { e.preventDefault(); err.textContent = msg; err.hidden = false; if (field) $(field).focus(); };
+    // a problem with a field shows right under it, where she is looking once the keyboard opens
+    const stop = (msg, field) => {
+      e.preventDefault();
+      if (!field) { err.textContent = msg; err.hidden = false; err.scrollIntoView({ block: "nearest", behavior: motion() }); return; }
+      const box = $(`${field}-error`);
+      box.textContent = msg; box.hidden = false;
+      $(field).setAttribute("aria-invalid", "true");
+      $(field).focus();
+      box.scrollIntoView({ block: "nearest", behavior: motion() });
+    };
     if (sending) return e.preventDefault();
     if (!(booking.day && booking.slot != null)) return stop("Elegí un día y un horario.");
     if (!name) return stop("Escribí tu nombre.", "#name");
@@ -485,7 +508,10 @@ function initReservas() {
       showDone(res, name, t, href);
       loadData().catch(() => {});
     }).catch(async (x) => {
-      err.textContent = `${x.message || "No pudimos guardar el turno."} Si ya le mandaste el mensaje, Mica te responde igual por WhatsApp.`;
+      // without connection the browser answers in English ("Failed to fetch", "Load failed")
+      let msg = x instanceof TypeError || !x.message ? "No pudimos guardar el turno. Revisá tu conexión." : x.message;
+      if (!/[.!?]$/.test(msg)) msg += ".";
+      err.textContent = `${msg} Si ya le mandaste el mensaje, Mica te responde igual por WhatsApp.`;
       err.hidden = false;
       await loadData().catch(() => {});
       renderSheet();
@@ -713,15 +739,18 @@ function initMicaSlider() {
 function initViews() {
   const salonIds = ["salon", "sobre", "servicios", "galeria", "gift", "faq", "visita"];
   const reservas = $("#view-reservas"), salon = $("#view-salon");
+  let routed = null;
   function route(id) {
     if (typeof id !== "string") id = location.hash.slice(1);
+    routed = location.hash;
     const toSalon = salonIds.includes(id);
     reservas.hidden = toSalon; salon.hidden = !toSalon;
     const target = id && id !== "salon" && id !== "reservas" ? document.getElementById(id) : null;
     if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
   }
   addEventListener("hashchange", () => route());
-  addEventListener("popstate", () => route());
+  // Back from the booking sheet keeps the address: nothing to route then
+  addEventListener("popstate", () => { if (location.hash !== routed) route(); });
   // handle in-page links ourselves so they also work inside embedded previews;
   // switching views adds a history entry so "back" returns to the other view
   document.addEventListener("click", (e) => {

@@ -173,6 +173,8 @@ const SEED = {
     // hours: null = the salon's hours. service_ids: null = every service
     { id: "mica", name: "Mica", role: "Manicurista", active: true, sort: 0, hours: null, service_ids: null },
   ],
+  // only for Mica, per professional: { id (= staff id), code (opens mi-agenda.html), commission (% of each turn) }
+  staff_private: [],
   clients: [],
   appointments: [],
   expenses: [], // what the salon spends: { date, category, description, amount, fixed (repeats every month) }
@@ -428,7 +430,32 @@ async function resizeImage(file, max) {
 /* =========================================================
    Storage adapters. Both expose the same methods.
    ========================================================= */
-const TABLES = ["categories", "services", "staff", "clients", "appointments", "exceptions", "addons", "gallery", "expenses"];
+const TABLES = ["categories", "services", "staff", "clients", "appointments", "exceptions", "addons", "gallery", "expenses", "staff_private"];
+
+// codes for mi-agenda.html: 8 characters, without the ones that look alike (0/O, 1/I)
+const STAFF_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const newStaffCode = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => STAFF_CODE_CHARS[b % 32]).join("");
+const cleanStaffCode = (c) => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+// One professional's own agenda, like staff_agenda() in schema.sql: her turns without phones, read only.
+function staffAgendaView(d, code, today) {
+  const p = cleanStaffCode(code) && d.staff_private.find((x) => x.code === cleanStaffCode(code));
+  const st = p && d.staff.find((x) => x.id === p.id && x.active);
+  if (!st) throw new Error("Ese código no funciona. Pedile a Mica tu link de nuevo.");
+  const [y, m] = today.split("-").map(Number);
+  const from = keyOf(new Date(Date.UTC(y, m - 3, 1))), to = addDays(today, 92);
+  const { business_name, owner_name, whatsapp, hours, slot_step } = d.settings;
+  return {
+    staff: { id: st.id, name: st.name, role: st.role, active: true, hours: st.hours, commission: p.commission ?? null },
+    settings: { business_name, owner_name, whatsapp, hours, slot_step },
+    exceptions: d.exceptions.filter((e) => e.date >= today && e.date <= to && (!e.staff_id || e.staff_id === st.id))
+      .map(({ date, staff_id, blocks, note }) => ({ date, staff_id, blocks, note })),
+    appointments: d.appointments.filter((a) => a.staff_id === st.id && a.date >= from && a.date <= to)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min)
+      .map(({ id, kind, staff_id, client_name, date, start_min, end_min, items, total, status, notes }) =>
+        ({ id, kind, staff_id, client_name, date, start_min, end_min, items, total, status, notes })),
+  };
+}
 
 function publicView(d, today) {
   return {
@@ -474,9 +501,13 @@ const LocalDB = {
     const d = this.read();
     d[table] = d[table].filter((x) => x.id !== id);
     if (table === "clients") d.appointments.forEach((a) => { if (a.client_id === id) a.client_id = null; });
-    if (table === "staff") d.exceptions = d.exceptions.filter((e) => e.staff_id !== id);
+    if (table === "staff") {
+      d.exceptions = d.exceptions.filter((e) => e.staff_id !== id);
+      d.staff_private = d.staff_private.filter((p) => p.id !== id);
+    }
     this.write(d);
   },
+  async staffAgenda(code) { return staffAgendaView(this.read(), code, nowInSalon().key); },
   async saveSettings(settings) { const d = this.read(); d.settings = settings; this.write(d); return settings; },
   async bookGroup(req) {
     const d = this.read();
@@ -560,6 +591,7 @@ function SupabaseDB(url, key) {
       catch (e) { throw new Error(/clients_phone_key|duplicate/.test(e.message) && table === "clients" ? "Ya hay una clienta con ese número." : e.message); }
     },
     async remove(table, id) { must(await sb.from(table).delete().eq("id", id)); },
+    async staffAgenda(code) { return must(await sb.rpc("staff_agenda", { p_code: code })); },
     async saveSettings(settings) { must(await sb.from("settings").upsert({ id: 1, data: settings })); return settings; },
     // A plain fetch with keepalive: it is sent immediately and finishes even if the phone jumps to WhatsApp.
     bookGroup(r) {

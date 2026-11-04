@@ -38,7 +38,8 @@ function normPhone(p) {
   return d;
 }
 const fmtPhone = (d) => (!d ? "" : /^595\d{9}$/.test(d) ? `+595 ${d.slice(3, 6)} ${d.slice(6, 9)} ${d.slice(9)}` : "+" + d);
-const waLink = (text, phone) => `https://wa.me/${phone || SETTINGS.whatsapp}?text=${encodeURIComponent(text)}`;
+// straight to api.whatsapp.com: the wa.me redirect turns emoji like 🌸 into "�" on the way
+const waLink = (text, phone) => `https://api.whatsapp.com/send?phone=${phone || SETTINGS.whatsapp}&text=${encodeURIComponent(text)}`;
 
 /* ---------- dates: "YYYY-MM-DD" keys and minutes from midnight, always in salon time ---------- */
 const parseKey = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); };

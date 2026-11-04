@@ -478,3 +478,32 @@ a.c-row:hover, button.c-row:hover { background: var(--card-hover); }
 .exp-amt { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
 .sec .row-link.setup .btn { flex: none; }
 .qr-box canvas { display: block; width: 100%; max-width: 300px; height: auto; margin: 4px auto 8px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line), var(--shadow); }
+
+/* ---------- Mi agenda (mi-agenda.html): one professional's own turns ---------- */
+.solo .topbar .brand { text-decoration: none; }
+.solo .view { margin: 0 auto; max-width: 640px; padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
+.solo .stats.money { grid-template-columns: 1fr 1fr; }
+.solo .stats.money .profit { grid-column: auto; }
+.solo .a-main small { white-space: normal; }
+.solo .a-main .a-note { margin-top: 3px; color: var(--text-soft); font-style: italic; }
+.solo .a-side .earn { color: var(--wa-dark); font-size: 12px; font-weight: 600; white-space: nowrap; }
+:root[data-theme="dark"] .solo .a-side .earn { color: #7fd6a3; }
+.solo .appt:is(div):hover { background: var(--card); }
+.gap {
+  display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 10px 14px; border-radius: 16px; border: 1.5px dashed var(--line); color: var(--muted); font-size: 13.5px;
+}
+.gap .a-time b { font-size: 14px; color: var(--muted); }
+.gap > span:last-child { color: var(--wa-dark); font-weight: 500; }
+:root[data-theme="dark"] .gap > span:last-child { color: #7fd6a3; }
+.goal { margin: 4px 0 6px; padding: 14px; border-radius: 18px; background: var(--blush); font-size: 13.5px; }
+.goal p { margin: 0 0 10px; }
+.goal-bar { height: 8px; border-radius: 999px; background: var(--card); overflow: hidden; }
+.goal-bar i { display: block; width: var(--w); height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--rose), var(--wa)); }
+.solo-foot { margin-top: 28px; }
+.solo-foot a { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-weight: 500; text-decoration: none; }
+.solo-foot .ic { width: 16px; height: 16px; }
+.link-plain { border: 0; background: none; padding: 8px; color: var(--muted); font-size: 13px; text-decoration: underline; cursor: pointer; }
+/* her access link, in the professional's editor */
+.access .hint { margin-top: 0; }
+.access code { display: block; font-size: 12.5px; word-break: break-all; background: var(--blush); padding: 8px 10px; border-radius: 10px; margin-bottom: 10px; }

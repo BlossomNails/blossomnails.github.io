@@ -1,0 +1,13 @@
+{
+  "name": "Blossom · Mi agenda",
+  "short_name": "Mi agenda",
+  "start_url": "mi-agenda.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbf3f5",
+  "theme_color": "#fbf3f5",
+  "icons": [
+    { "src": "images/logo-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "images/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

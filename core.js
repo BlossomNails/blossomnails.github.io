@@ -418,13 +418,20 @@ function reminderText(data, client, since) {
 }
 
 /* ---------- photos: resized in the browser before upload ---------- */
+// WebP where the browser can make it. Safari can't, and silently hands back a PNG that weighs
+// ten times more, so anything that isn't WebP is made again as JPEG.
 async function resizeImage(file, max) {
   const bmp = await createImageBitmap(file);
   const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const c = document.createElement("canvas");
   c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
-  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-  return new Promise((res) => c.toBlob(res, "image/webp", 0.82));
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff"; // JPEG has no transparency
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  const encode = (type) => new Promise((res) => c.toBlob(res, type, 0.82));
+  const webp = await encode("image/webp");
+  return webp?.type === "image/webp" ? webp : encode("image/jpeg");
 }
 
 /* =========================================================
@@ -610,8 +617,8 @@ function SupabaseDB(url, key) {
     },
     async uploadImage(file, folder = "services") {
       const blob = await resizeImage(file, folder === "gallery" ? 1400 : 900);
-      const path = `${folder}/${uid()}.webp`;
-      must(await sb.storage.from("media").upload(path, blob, { contentType: "image/webp", cacheControl: "31536000" }));
+      const path = `${folder}/${uid()}.${blob.type === "image/webp" ? "webp" : "jpg"}`;
+      must(await sb.storage.from("media").upload(path, blob, { contentType: blob.type, cacheControl: "31536000" }));
       return sb.storage.from("media").getPublicUrl(path).data.publicUrl;
     },
     auth: {

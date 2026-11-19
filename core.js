@@ -534,7 +534,7 @@ const LocalDB = {
       final_total: input.total, paid_amount: 0, deposit: 0, status: "confirmed", notes: input.notes || null, source: "panel",
       created_by_staff: st.id };
     const i = d.appointments.findIndex((a) => a.id === row.id);
-    if (i >= 0) { const paid = d.appointments[i].paid_amount || 0; Object.assign(d.appointments[i], row, { paid_amount: paid, final_total: paid ? Math.max(row.total, paid) : row.total }); }
+    if (i >= 0) { const paid = d.appointments[i].paid_amount || 0; Object.assign(d.appointments[i], row, { paid_amount: paid, final_total: Math.max(row.total, paid) }); }
     else d.appointments.push(row);
     this.write(d); return row;
   },

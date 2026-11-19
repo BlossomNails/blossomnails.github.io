@@ -228,13 +228,14 @@ function apptCard(a, { date = false } = {}) {
   const isNew = a.source === "web" && Date.now() - Date.parse(a.created_at) < 864e5;
   const badge = (a.status !== "confirmed" ? `<span class="badge b-${a.status}">${STATUS[a.status]}</span>` : isNew ? '<span class="badge b-new">Nueva</span>' : "")
     + (a.deposit > 0 ? '<span class="badge b-dep">Seña ✓</span>' : depositOpen(a) && !isPast(a) ? '<span class="badge b-dep-no">Sin seña</span>' : "")
-    + (bdayGift(a) ? '<span class="badge" title="Regalo de cumpleaños">🎂</span>' : "");
+    + (bdayGift(a) ? '<span class="badge" title="Regalo de cumpleaños">🎂</span>' : "")
+    + (a.created_by_staff ? `<span class="badge">Registrado por ${esc(staffById(a.created_by_staff)?.name || "profesional")}</span>` : "");
   return `<button type="button" class="appt s-${a.status}${block ? " is-block" : ""}" data-act="appt-open" data-id="${a.id}">
     <span class="a-time">${date ? `<small class="a-date">${relDay(a.date)}</small>` : ""}<b>${hhmm(a.start_min)}</b><small>${hhmm(a.end_min)}</small></span>
     <span class="a-main"><b>${block ? ic("lock") : ""}${esc(apptTitle(a))}</b>
       <small>${block ? "Horario bloqueado" : esc(itemsText(a)) || "Sin servicios"}</small>
       ${multi() && st ? `<small class="a-staff">con ${esc(st.name)}</small>` : ""}</span>
-    <span class="a-side">${block ? "" : `<b>${gs(a.total)}</b>`}${badge}</span>
+    <span class="a-side">${block ? "" : `<b>${gs(a.final_total ?? a.total)}</b>`}${badge}</span>
   </button>`;
 }
 const empty = (msg) => `<div class="empty"><svg class="sparkle"><use href="#i-sparkle"/></svg><p>${msg}</p></div>`;

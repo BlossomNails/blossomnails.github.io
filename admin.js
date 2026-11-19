@@ -235,7 +235,7 @@ function apptCard(a, { date = false } = {}) {
     <span class="a-main"><b>${block ? ic("lock") : ""}${esc(apptTitle(a))}</b>
       <small>${block ? "Horario bloqueado" : esc(itemsText(a)) || "Sin servicios"}</small>
       ${multi() && st ? `<small class="a-staff">con ${esc(st.name)}</small>` : ""}</span>
-    <span class="a-side">${block ? "" : `<b>${gs(a.final_total ?? a.total)}</b>`}${badge}</span>
+    <span class="a-side">${block ? "" : `<b>${gs(a.final_total ?? a.total)}</b>${a.paid_amount != null ? `<small>Cobrado ${gs(a.paid_amount)} · Pendiente ${gs(Math.max(0,(a.final_total ?? a.total)-a.paid_amount))}</small>` : ""}`}${badge}</span>
   </button>`;
 }
 const empty = (msg) => `<div class="empty"><svg class="sparkle"><use href="#i-sparkle"/></svg><p>${msg}</p></div>`;

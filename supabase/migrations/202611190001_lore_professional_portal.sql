@@ -114,7 +114,10 @@ begin
   if v_blocks is null then
     select e.blocks into v_blocks from public.exceptions e where e.date=p_date and e.staff_id is null limit 1;
   end if;
-  if v_blocks is null then v_blocks:=coalesce(v_staff.hours,(select data->'hours' from public.settings where id=1))->extract(dow from p_date)::int; end if;
+  if v_blocks is null then
+    v_blocks := coalesce(v_staff.hours, (select data->'hours' from public.settings where id=1));
+    v_blocks := coalesce(v_blocks -> (extract(dow from p_date)::int), '[]'::jsonb);
+  end if;
   if not exists(select 1 from jsonb_array_elements(coalesce(v_blocks,'[]'::jsonb)) b
     where (b->>0)::int<=p_start and
       (v_end<=(b->>1)::int or ((b->>1)::int=(select max((x->>1)::int) from jsonb_array_elements(v_blocks) x) and p_start<=(b->>1)::int))) then
@@ -139,7 +142,7 @@ begin
   else
     update public.appointments set client_id=v_client,client_name=v_name,client_phone=v_phone,date=p_date,
       start_min=p_start,end_min=v_end,items=p_items,total=v_total,
-      final_total=coalesce(final_total,total),notes=nullif(trim(coalesce(p_notes,'')),''),
+      final_total=case when coalesce(paid_amount,0)=0 then v_total else greatest(coalesce(final_total,total),paid_amount) end,notes=nullif(trim(coalesce(p_notes,'')),''),
       updated_by_staff=v_staff.id
     where id=p_id returning * into v_existing;
   end if;

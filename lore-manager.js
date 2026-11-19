@@ -52,6 +52,8 @@
     const f = e.target, d = new FormData(f), sid = d.get("service_id");
     let item;
     if (sid === "__other") {
+      f.elements.total.value = d.get("other_price");
+      f.elements.duration.value = d.get("other_duration");
       const name = String(d.get("other_name") || "").trim();
       if (!name) { toast("Escribí el nombre del servicio."); return; }
       item = { service_id: null, name, price: Number(d.get("total")), duration: Number(d.get("duration")) };
@@ -78,6 +80,9 @@
       f.elements.client_phone.value = a.client_phone || ""; f.elements.date.value = a.date;
       f.elements.time.value = hhmm(a.start_min); f.elements.total.value = a.final_total ?? a.total;
       f.elements.duration.value = a.end_min - a.start_min; f.elements.notes.value = a.notes || "";
+      const item = (a.items || [])[0];
+      if (item && item.service_id) f.elements.service_id.value = item.service_id;
+      else if (item) { f.elements.service_id.value = "__other"; document.querySelector("#lore-other").hidden = false; f.elements.other_name.value = item.name; f.elements.other_price.value = item.price; f.elements.other_duration.value = item.duration || (a.end_min-a.start_min); }
       document.querySelector("#lore-form-title").textContent = "Editar turno propio";
       f.scrollIntoView({ behavior: motion(), block: "center" });
     }

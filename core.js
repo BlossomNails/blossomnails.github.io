@@ -462,8 +462,11 @@ function staffAgendaView(d, code, today) {
       .map(({ date, staff_id, blocks, note }) => ({ date, staff_id, blocks, note })),
     appointments: d.appointments.filter((a) => a.staff_id === st.id && a.date >= from && a.date <= to)
       .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min)
-      .map(({ id, kind, staff_id, client_id, client_name, client_phone, date, start_min, end_min, items, total, final_total, paid_amount, deposit, status, notes, created_by_staff, completed_at }) =>
-        ({ id, kind, staff_id, client_id, client_name, client_phone, date, start_min, end_min, items, total, final_total, paid_amount, deposit, status, notes, created_by_staff, completed_at })),
+      .map((a) => ({ id: a.id, kind: a.kind, staff_id: a.staff_id, client_id: a.client_id, client_name: a.client_name,
+        client_phone: p.portal_role === "manager" ? a.client_phone : null, date: a.date, start_min: a.start_min, end_min: a.end_min,
+        items: a.items, total: a.total, final_total: p.portal_role === "manager" ? (a.final_total ?? a.total) : a.total,
+        paid_amount: p.portal_role === "manager" ? (a.paid_amount ?? 0) : null, deposit: p.portal_role === "manager" ? a.deposit : null,
+        status: a.status, notes: a.notes, created_by_staff: a.created_by_staff, completed_at: a.completed_at })),
   };
 }
 

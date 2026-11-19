@@ -20,7 +20,7 @@ const multi = () => activeStaff().length > 1;
 const staffById = (id) => D().staff.find((s) => s.id === id);
 // her code for mi-agenda.html and her commission, only visible here
 const privOf = (id) => D().staff_private.find((p) => p.id === id) || { id, code: null, commission: null };
-const commissionOf = (a) => { const c = privOf(a.staff_id).commission; return c == null ? 0 : Math.round(((a.total || 0) * c) / 100); };
+const commissionOf = (a) => { const c = privOf(a.staff_id).commission; const total = a.final_total ?? a.total ?? 0; return c == null ? 0 : Math.round((total * c) / 100); };
 const clientById = (id) => D().clients.find((c) => c.id === id);
 const svcById = (id) => D().services.find((s) => s.id === id);
 const live = (a) => !OFF.includes(a.status);
@@ -1292,7 +1292,7 @@ VIEWS.finanzas = () => {
     return [...map.values()].sort((a, b) => b.total - a.total || b.n - a.n);
   };
   const bySvc = tally((a) => a.items.map((i) => [i.service_id || i.name, i.name, i.price]));
-  const byStaff = tally((a) => [[a.staff_id || "-", staffById(a.staff_id)?.name || "Sin asignar", a.total]]);
+  const byStaff = tally((a) => [[a.staff_id || "-", staffById(a.staff_id)?.name || "Sin asignar", a.final_total ?? a.total]]);
   // what each professional earned with her commission, on the same turns
   const owed = [...D().staff].sort(bySort).map((st) => ({ st, c: privOf(st.id).commission, list: done.filter((a) => a.staff_id === st.id) }))
     .filter((x) => x.c != null && x.list.length)

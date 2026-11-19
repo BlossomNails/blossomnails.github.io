@@ -51,7 +51,7 @@ begin
       'active',v_staff.active,'hours',v_staff.hours,'commission',v_private.commission,
       'portal_role',v_private.portal_role),
     'settings', coalesce((select data from public.settings where id=1),'{}'::jsonb),
-    'services', coalesce((select jsonb_agg(to_jsonb(s) order by s.sort) from public.services s where s.active),'[]'::jsonb),
+    'services', coalesce((select jsonb_agg(to_jsonb(s) order by s.sort) from public.services s where s.active and (v_staff.service_ids is null or s.id=any(v_staff.service_ids))),'[]'::jsonb),
     'exceptions', coalesce((select jsonb_agg(to_jsonb(e)) from public.exceptions e
       where e.date between v_today - 90 and v_today + 92 and (e.staff_id is null or e.staff_id=v_staff.id)),'[]'::jsonb),
     'appointments', coalesce((select jsonb_agg(

@@ -9,6 +9,9 @@ create table if not exists public.staff_private (
   portal_role text not null default 'viewer' check (portal_role in ('viewer','manager'))
 );
 
+alter table public.staff_private add column if not exists portal_role text not null default 'viewer';
+alter table public.staff_private drop constraint if exists staff_private_portal_role_check;
+alter table public.staff_private add constraint staff_private_portal_role_check check (portal_role in ('viewer','manager'));
 alter table public.staff_private enable row level security;
 revoke all on public.staff_private from anon, authenticated;
 drop policy if exists "admin staff private" on public.staff_private;

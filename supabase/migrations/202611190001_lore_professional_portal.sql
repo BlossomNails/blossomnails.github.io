@@ -100,8 +100,14 @@ begin
   if p_date < v_today or p_date > v_today + 365 then raise exception 'Revisá la fecha del turno.'; end if;
   if p_start not between 0 and 1439 or p_duration not between 15 and 720 or v_end>1440 then
     raise exception 'Revisá el horario y la duración.'; end if;
+  if p_total is null or p_total<0 then raise exception 'Revisá el precio del turno.'; end if;
   if jsonb_typeof(p_items)<>'array' or jsonb_array_length(p_items)=0 or jsonb_array_length(p_items)>12 then
     raise exception 'Agregá al menos un servicio.'; end if;
+  if exists(select 1 from jsonb_array_elements(p_items) item
+    where nullif(item->>'service_id','') is not null
+      and not exists(select 1 from public.services svc where svc.id=item->>'service_id' and svc.active
+        and (v_staff.service_ids is null or svc.id=any(v_staff.service_ids)))) then
+    raise exception 'Ese servicio no está habilitado para tu perfil.'; end if;
   if length(coalesce(p_notes,''))>500 then raise exception 'La observación es demasiado larga.'; end if;
 
   if p_id is not null then
@@ -142,7 +148,7 @@ begin
   else
     update public.appointments set client_id=v_client,client_name=v_name,client_phone=v_phone,date=p_date,
       start_min=p_start,end_min=v_end,items=p_items,total=v_total,
-      final_total=case when coalesce(paid_amount,0)=0 then v_total else greatest(coalesce(final_total,total),paid_amount) end,notes=nullif(trim(coalesce(p_notes,'')),''),
+      final_total=greatest(v_total,coalesce(paid_amount,0)),notes=nullif(trim(coalesce(p_notes,'')),''),
       updated_by_staff=v_staff.id
     where id=p_id returning * into v_existing;
   end if;

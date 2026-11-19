@@ -455,7 +455,7 @@ function staffAgendaView(d, code, today) {
   const { business_name, owner_name, whatsapp, hours, slot_step } = d.settings;
   return {
     staff: { id: st.id, name: st.name, role: st.role, active: true, hours: st.hours, commission: p.commission ?? null, portal_role: p.portal_role || "viewer" },
-    services: d.services.filter((s) => s.active),
+    services: d.services.filter((s) => s.active && (!st.service_ids || st.service_ids.includes(s.id))),
     clients: (p.portal_role === "manager" ? d.clients.filter((cl) => d.appointments.some((a) => a.staff_id === st.id && a.client_id === cl.id)) : []),
     settings: { business_name, owner_name, whatsapp, hours, slot_step },
     exceptions: d.exceptions.filter((e) => e.date >= today && e.date <= to && (!e.staff_id || e.staff_id === st.id))
@@ -522,6 +522,7 @@ const LocalDB = {
     const d = this.read(), p = d.staff_private.find((x) => x.code === cleanStaffCode(code));
     if (!p || p.portal_role !== "manager") throw new Error("No tenés permiso para registrar turnos.");
     const st = d.staff.find((x) => x.id === p.id && x.active);
+    if (!st) throw new Error("Tu acceso profesional no está activo.");
     const phone = normPhone(input.client_phone), name = String(input.client_name || "").trim();
     if (!name || phone.length < 8) throw new Error("Completá el nombre y WhatsApp de la clienta.");
     const end = input.start_min + input.duration;

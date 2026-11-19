@@ -56,10 +56,12 @@ begin
       where e.date between v_today - 90 and v_today + 92 and (e.staff_id is null or e.staff_id=v_staff.id)),'[]'::jsonb),
     'appointments', coalesce((select jsonb_agg(
       jsonb_build_object('id',a.id,'kind',a.kind,'staff_id',a.staff_id,'client_id',a.client_id,
-        'client_name',a.client_name,'client_phone',a.client_phone,'date',a.date,
+        'client_name',a.client_name,'client_phone',case when v_private.portal_role='manager' then a.client_phone else null end,'date',a.date,
         'start_min',a.start_min,'end_min',a.end_min,'items',a.items,'total',a.total,
-        'final_total',coalesce(a.final_total,a.total),'paid_amount',a.paid_amount,
-        'deposit',a.deposit,'deposit_due',a.deposit_due,'status',a.status,'notes',a.notes,
+        'final_total',case when v_private.portal_role='manager' then coalesce(a.final_total,a.total) else a.total end,
+        'paid_amount',case when v_private.portal_role='manager' then a.paid_amount else null end,
+        'deposit',case when v_private.portal_role='manager' then a.deposit else null end,
+        'deposit_due',case when v_private.portal_role='manager' then a.deposit_due else null end,'status',a.status,'notes',a.notes,
         'source',a.source,'created_by_staff',a.created_by_staff,'completed_at',a.completed_at)
       order by a.date,a.start_min)
       from public.appointments a where a.staff_id=v_staff.id

@@ -32,7 +32,7 @@ const ic = {
 
 /* ---------- money: her commission on each turn (or the turn's total when Mica didn't set one) ---------- */
 const pct = () => M.data.staff.commission;
-const earn = (a) => (pct() == null ? a.total || 0 : Math.round(((a.total || 0) * pct()) / 100));
+const earn = (a) => { const total = a.final_total ?? a.total ?? 0; return pct() == null ? total : Math.round((total * pct()) / 100); };
 const turns = (ym) => M.data.appointments.filter((a) => a.kind !== "block" && a.date.startsWith(ym));
 // a turn counts as earned once it's over and confirmed, the same rule as Mica's Control financiero
 const earned = (list, now) => list.filter((a) => a.status === "confirmed" && isPast(a, now));

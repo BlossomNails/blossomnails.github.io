@@ -1277,7 +1277,7 @@ VIEWS.finanzas = () => {
   const withDep = appts.filter((a) => a.deposit > 0);
   const kept = withDep.filter((a) => OFF.includes(a.status));
   const depAhead = withDep.filter((a) => live(a) && !isPast(a, now));
-  const income = sum(done, (a) => a.total) + sum(kept, (a) => a.deposit);
+  const income = sum(done, (a) => a.final_total ?? a.total) + sum(kept, (a) => a.deposit);
   // gastos of the month and what's left after them
   const exp = D().expenses.filter((x) => x.date.startsWith(A.month)).sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || "").localeCompare(a.created_at || ""));
   const spent = sum(exp, (x) => x.amount);

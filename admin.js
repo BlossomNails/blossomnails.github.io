@@ -1243,14 +1243,17 @@ async function saveStaff(form) {
 // her personal link to mi-agenda.html, with the code after "#"
 const agendaLink = (code) => `${bookingUrl()}mi-agenda.html#${code}`;
 function accessBlock(s) {
-  const { code } = privOf(s.id);
+  const { code, portal_role = "viewer" } = privOf(s.id);
   const first = esc(firstName(s.name));
+  const roleControl = `<p class="hint">Permiso actual: <b>${portal_role === "manager" ? "Gestión de turnos y clientas" : "Solo lectura"}</b></p><button class="btn btn-ghost sm" type="button" data-act="staff-portal-role" data-id="${s.id}">${portal_role === "manager" ? "Quitar permisos de gestión" : "Habilitar gestión de turnos"}</button>`;
   if (!code) {
-    return `<p class="hint">Con su link, ${first} ve en el celular sus turnos, sus horarios libres y cuánto lleva ganado. No puede cambiar nada ni ve los teléfonos de las clientas.</p>
+    return `<p class="hint">Con su link, ${first} ve en el celular sus turnos. Los permisos de gestión se habilitan por separado.</p>
+      ${roleControl}
       <button class="btn btn-ghost" type="button" data-act="staff-access" data-id="${s.id}">${ic("lock")}Crear su acceso</button>`;
   }
   const msg = `¡Hola ${firstName(s.name)}! 🌸 Este es tu acceso a tu agenda de Blossom: ${agendaLink(code)}\n\nAhí ves tus turnos, tus horarios libres y lo que vas ganando. Guardalo en la pantalla de inicio del celu para tenerlo a mano. Si te pide código: ${code}`;
   return `<div class="access">
+      ${roleControl}
       <p class="hint">${first} entra con este link${s.active ? "" : " (mientras esté inactiva no funciona)"}. Código: <b>${code}</b></p>
       <code>${esc(agendaLink(code))}</code>
       <div class="row">
@@ -1634,6 +1637,13 @@ const ACT = {
     const n = D().appointments.filter((a) => a.staff_id === s.id && live(a) && !isPast(a)).length;
     if (!confirm(`¿Eliminar a ${s.name}?${n ? ` Tiene ${n} cita${n === 1 ? "" : "s"} próximas que van a quedar sin profesional.` : ""} Si solo deja de atender por un tiempo, mejor desactivala.`)) return;
     run(async () => { await remove("staff", s.id); closeDlg(); render(); }, "Eliminada");
+  },
+  "staff-portal-role": (el) => {
+    const s = staffById(el.dataset.id), p = privOf(s.id);
+    const next = p.portal_role === "manager" ? "viewer" : "manager";
+    if (next === "manager" && !confirm(`¿Habilitar a ${firstName(s.name)} para registrar y administrar sus propios turnos y consultar el historial de sus clientas?`)) return;
+    run(async () => { await save("staff_private", { ...p, portal_role: next }); $("#st-access").innerHTML = accessBlock(s); render(); },
+      next === "manager" ? "Permisos de gestión habilitados ✓" : "Permisos de gestión quitados");
   },
   // her link to mi-agenda.html: a new code makes the old link stop working
   "staff-access": (el) => {

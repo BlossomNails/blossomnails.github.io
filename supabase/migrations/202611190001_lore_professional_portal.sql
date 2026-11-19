@@ -67,7 +67,10 @@ begin
       from public.appointments a where a.staff_id=v_staff.id
         and a.date between v_today - 90 and v_today + 92),'[]'::jsonb),
     'clients', case when v_private.portal_role='manager' then
-      coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'name',c.name,'phone',c.phone,'notes',c.notes,'created_at',c.created_at))
+      coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'name',c.name,'phone',c.phone,'notes',c.notes,'created_at',c.created_at,
+          'history',(select coalesce(jsonb_agg(jsonb_build_object('date',ha.date,'start_min',ha.start_min,'items',ha.items,
+            'total',coalesce(ha.final_total,ha.total),'status',ha.status) order by ha.date desc,ha.start_min desc),'[]'::jsonb)
+            from public.appointments ha where ha.client_id=c.id and ha.staff_id=v_staff.id and ha.kind<>'block')))
         from public.clients c where exists(select 1 from public.appointments a
           where a.client_id=c.id and a.staff_id=v_staff.id)),'[]'::jsonb)
       else '[]'::jsonb end

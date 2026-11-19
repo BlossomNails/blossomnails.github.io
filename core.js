@@ -462,8 +462,8 @@ function staffAgendaView(d, code, today) {
       .map(({ date, staff_id, blocks, note }) => ({ date, staff_id, blocks, note })),
     appointments: d.appointments.filter((a) => a.staff_id === st.id && a.date >= from && a.date <= to)
       .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min)
-      .map(({ id, kind, staff_id, client_name, date, start_min, end_min, items, total, status, notes }) =>
-        ({ id, kind, staff_id, client_name, date, start_min, end_min, items, total, status, notes })),
+      .map(({ id, kind, staff_id, client_id, client_name, client_phone, date, start_min, end_min, items, total, final_total, paid_amount, deposit, status, notes, created_by_staff, completed_at }) =>
+        ({ id, kind, staff_id, client_id, client_name, client_phone, date, start_min, end_min, items, total, final_total, paid_amount, deposit, status, notes, created_by_staff, completed_at })),
   };
 }
 

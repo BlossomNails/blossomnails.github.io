@@ -28,7 +28,8 @@
       '<div class="sec-head"><h2>Historial de clientas</h2></div>' +
       (clients.length ? '<div class="list">' + clients.map(cl => {
         const count = M.data.appointments.filter(a => a.client_id === cl.id).length;
-        return '<div class="appt"><span class="a-main"><b>' + esc(cl.name) + '</b><small>' + esc(cl.phone || "Sin teléfono") + ' · ' + count + ' turno(s)</small>' + (cl.notes ? '<small>' + esc(cl.notes) + '</small>' : '') + '</span></div>';
+        const history = (cl.history || []).map(h => '<small>' + esc(shortDate(h.date)) + ' · ' + esc((h.items || []).map(i => i.name).join(" + ") || "Servicio") + ' · ' + gs(h.total) + ' · ' + esc(STATUS[h.status] || h.status) + '</small>').join("");
+        return '<div class="appt"><span class="a-main"><b>' + esc(cl.name) + '</b><small>' + esc(cl.phone || "Sin teléfono") + ' · ' + count + ' turno(s)</small>' + (cl.notes ? '<small>' + esc(cl.notes) + '</small>' : '') + history + '</span></div>';
       }).join("") + '</div>' : '<p class="hint">Todavía no hay historial de clientas.</p>');
     const view = document.querySelector("#view");
     view.insertBefore(root, view.children[1] || null);

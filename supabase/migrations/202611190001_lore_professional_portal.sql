@@ -12,6 +12,20 @@ create table if not exists public.staff_private (
 alter table public.staff_private add column if not exists portal_role text not null default 'viewer';
 alter table public.staff_private drop constraint if exists staff_private_portal_role_check;
 alter table public.staff_private add constraint staff_private_portal_role_check check (portal_role in ('viewer','manager'));
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+  select exists (
+    select 1 from public.admins where user_id = auth.uid()
+  );
+$;
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to anon, authenticated;
+
 alter table public.staff_private enable row level security;
 revoke all on public.staff_private from anon, authenticated;
 drop policy if exists "admin staff private" on public.staff_private;
@@ -173,7 +187,7 @@ $$;
 
 create or replace function public.staff_update_payment(p_code text,p_id uuid,p_paid int,p_final_total int,p_deposit int default 0,p_extra_name text default null,p_extra_price int default 0)
 returns boolean
-language plpgsql security definer set search_path=public as $$
+language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $
 declare v_staff public.staff;
 begin
   select st.* into v_staff from public.staff_private sp join public.staff st on st.id=sp.id
@@ -198,7 +212,7 @@ $$;
 
 create or replace function public.staff_complete_appointment(p_code text,p_id uuid)
 returns boolean
-language plpgsql security definer set search_path=public as $$
+language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $
 declare v_staff public.staff;
 begin
   select st.* into v_staff from public.staff_private sp join public.staff st on st.id=sp.id
@@ -214,7 +228,7 @@ $$;
 
 create or replace function public.staff_cancel_appointment(p_code text,p_id uuid)
 returns boolean
-language plpgsql security definer set search_path=public as $$
+language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $
 declare v_staff public.staff;
 begin
   select st.* into v_staff from public.staff_private sp join public.staff st on st.id=sp.id

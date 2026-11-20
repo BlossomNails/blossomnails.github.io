@@ -272,11 +272,11 @@ VIEWS.inicio = () => {
     </div>
     <div class="stats">
       <a class="stat" href="#/agenda" data-act="agenda-today">${ic("calendar")}<b>${today.length}</b><small>Citas hoy</small></a>
-      <div class="stat">${ic("chart")}<b>${gs(sum(today.filter((a) => a.status === "confirmed"), (a) => a.total))}</b><small>Ingresos de hoy</small></div>
+      <div class="stat">${ic("chart")}<b>${gs(sum(today.filter((a) => a.status === "confirmed"), (a) => a.final_total ?? a.total))}</b><small>Ingresos de hoy</small></div>
     </div>
     ${orphan.length ? `<a class="row-link setup warnlink" href="#/equipo">${ic("user")}<span><b>${orphan.length} servicio${orphan.length === 1 ? "" : "s"} no se puede${orphan.length === 1 ? "" : "n"} reservar</b><small>No los tiene marcados ninguna profesional. Tocá para asignarlos.</small></span>${ic("right")}</a>` : ""}
     ${setup.length ? `<a class="row-link setup" href="#/ajustes">${ic("sliders")}<span><b>Para terminar de configurar</b><small>Cargá ${setup.join(" y ")} en Ajustes.</small></span>${ic("right")}</a>` : ""}
-    <a class="row-link" href="#/finanzas">${ic("chart")}<span><b>Control financiero</b><small>Este mes: ${gs(sum(month, (a) => a.total))} · ${month.length} cita${month.length === 1 ? "" : "s"}</small></span>${ic("right")}</a>
+    <a class="row-link" href="#/finanzas">${ic("chart")}<span><b>Control financiero</b><small>Este mes: ${gs(sum(month, (a) => a.final_total ?? a.total))} · ${month.length} cita${month.length === 1 ? "" : "s"}</small></span>${ic("right")}</a>
     ${pending.length ? section(`Por confirmar <span class="count">${pending.length}</span>`, `<div class="list">${pending.map((a) => apptCard(a, { date: true })).join("")}</div>`) : ""}
     ${remind.length ? section(`Recordatorios para mañana <span class="count">${remind.filter((a) => !a.reminded_at).length || "✓"}</span>`,
       `<p class="hint">Un toque y le llega el recordatorio por WhatsApp.</p><div class="list">${remind.map(remindRow).join("")}</div>`) : ""}
@@ -361,7 +361,7 @@ function agendaList() {
   const days = [...new Set(items.map((a) => a.date))];
   const body = days.length ? days.map((k) => {
     const list = items.filter((a) => a.date === k);
-    const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.total);
+    const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.final_total ?? a.total);
     return `<h3 class="day-h"><span>${relDay(k) === DAYS_SHORT[dowOf(k)] + " " + shortDate(k) ? longDate(k) : `${relDay(k)} · ${longDate(k)}`}</span><small>${money ? gs(money) : ""}</small></h3>
       <div class="list">${list.map((a) => apptCard(a)).join("")}</div>`;
   }).join("") : empty(ag.filter === "hoy" ? "No hay citas para hoy." : "Sin citas.");
@@ -510,7 +510,7 @@ function openDetail(id) {
           <b>${hhmm(x.start_min)}–${hhmm(x.end_min)}</b><span>${esc(firstName(staffById(x.staff_id)?.name) || "—")} · ${esc(itemsText(x))}</span></button>`).join("")}</div>` : ""}
       ${block ? (a.notes ? `<p>${esc(a.notes)}</p>` : "") : `
         <ul class="det-items">${a.items.map((i) => `<li><span>${esc(i.name)}</span><small>${i.duration ? dur(i.duration) : ""}</small><b>${i.price != null ? gs(i.price) : "—"}</b></li>`).join("")}
-          <li class="tot"><span>Total</span><small></small><b>${gs(a.total)}</b></li></ul>
+          <li class="tot"><span>Total</span><small></small><b>${gs(a.final_total ?? a.total)}</b></li></ul>
         ${a.client_phone ? `<p class="det-phone">${ic("user")}${fmtPhone(a.client_phone)}</p>` : ""}
         ${a.notes ? `<p class="det-notes">${esc(a.notes)}</p>` : ""}
         <div class="dep">
@@ -1298,7 +1298,7 @@ VIEWS.finanzas = () => {
   const owed = [...D().staff].sort(bySort).map((st) => ({ st, c: privOf(st.id).commission, list: done.filter((a) => a.staff_id === st.id) }))
     .filter((x) => x.c != null && x.list.length)
     .map(({ st, c, list }) => ({ label: `${st.name} · ${c}%`, n: list.length, total: sum(list, commissionOf) }));
-  const byDay = tally((a) => [[a.date, a.date, a.total]]).sort((a, b) => a.label.localeCompare(b.label));
+  const byDay = tally((a) => [[a.date, a.date, a.final_total ?? a.total]]).sort((a, b) => a.label.localeCompare(b.label));
   const max = Math.max(1, ...byDay.map((d) => d.total));
   const table = (rows) => `<div class="tbl">${rows.map((r) => `<div><span>${esc(r.label)}</span><small>${r.n}</small><b>${gs(r.total)}</b></div>`).join("")}</div>`;
   return `
@@ -1315,7 +1315,7 @@ VIEWS.finanzas = () => {
     </div>
     <div class="stats">
       <div class="stat"><small>Señas cobradas</small><b>${gs(sum(withDep, (a) => a.deposit))}</b><small>${gs(sum(depAhead, (a) => a.deposit))} de turnos que vienen</small></div>
-      <div class="stat"><small>Agendado</small><b>${gs(sum(ahead, (a) => a.total))}</b><small>${ahead.length} por venir</small></div>
+      <div class="stat"><small>Agendado</small><b>${gs(sum(ahead, (a) => a.final_total ?? a.total))}</b><small>${ahead.length} por venir</small></div>
       <div class="stat"><small>Ticket promedio</small><b>${gs(done.length ? income / done.length : 0)}</b><small>${people} clienta${people === 1 ? "" : "s"}</small></div>
       <div class="stat"><small>Canceladas · no vino</small><b>${appts.filter((a) => a.status === "cancelled").length} · ${appts.filter((a) => a.status === "no_show").length}</b><small>en el mes</small></div>
     </div>

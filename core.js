@@ -647,8 +647,9 @@ function SupabaseDB(url, key) {
         p_client_name: x.client_name, p_client_phone: x.client_phone, p_date: x.date,
         p_start: x.start_min, p_items: x.items, p_total: x.total, p_duration: x.duration, p_notes: x.notes || null }));
     },
-    async staffUpdatePayment(code, id, paid, finalTotal) {
-      return must(await sb.rpc("staff_update_payment", { p_code: code, p_id: id, p_paid: paid, p_final_total: finalTotal }));
+    async staffUpdatePayment(code, id, paid, finalTotal, extraName = null, extraPrice = 0) {
+      return must(await sb.rpc("staff_update_payment", { p_code: code, p_id: id, p_paid: paid, p_final_total: finalTotal,
+        p_extra_name: extraName, p_extra_price: extraPrice }));
     },
     async staffCancelAppointment(code, id) {
       return must(await sb.rpc("staff_cancel_appointment", { p_code: code, p_id: id }));

@@ -31,7 +31,7 @@ set paid_amount = greatest(coalesce(paid_amount, 0), coalesce(deposit, 0));
 
 create or replace function public.staff_portal_data(p_code text)
 returns jsonb
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql stable security definer set search_path = public, pg_temp as $
 declare
   v_staff public.staff;
   v_private public.staff_private;
@@ -50,7 +50,17 @@ begin
     'staff', jsonb_build_object('id',v_staff.id,'name',v_staff.name,'role',v_staff.role,
       'active',v_staff.active,'hours',v_staff.hours,'commission',v_private.commission,
       'portal_role',v_private.portal_role),
-    'settings', coalesce((select data from public.settings where id=1),'{}'::jsonb),
+    'settings', coalesce((
+      select jsonb_build_object(
+        'business_name', data->'business_name',
+        'owner_name', data->'owner_name',
+        'whatsapp', data->'whatsapp',
+        'hours', data->'hours',
+        'slot_step', data->'slot_step',
+        'default_duration', data->'default_duration',
+        'min_notice', data->'min_notice'
+      ) from public.settings where id=1
+    ), '{}'::jsonb),
     'services', coalesce((select jsonb_agg(to_jsonb(s) order by s.sort) from public.services s where s.active and (v_staff.service_ids is null or s.id=any(v_staff.service_ids))),'[]'::jsonb),
     'exceptions', coalesce((select jsonb_agg(to_jsonb(e)) from public.exceptions e
       where e.date between v_today - 90 and v_today + 92 and (e.staff_id is null or e.staff_id=v_staff.id)),'[]'::jsonb),
@@ -82,7 +92,7 @@ create or replace function public.staff_save_appointment(
   p_code text, p_id uuid, p_client_name text, p_client_phone text,
   p_date date, p_start int, p_items jsonb, p_total int, p_duration int, p_notes text default null
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, pg_temp as $
 declare
   v_private public.staff_private;
   v_staff public.staff;
@@ -161,7 +171,7 @@ begin
 end;
 $$;
 
-create or replace function public.staff_update_payment(p_code text,p_id uuid,p_paid int,p_final_total int)
+create or replace function public.staff_update_payment(p_code text,p_id uuid,p_paid int,p_final_total int,p_extra_name text default null,p_extra_price int default 0)
 returns boolean
 language plpgsql security definer set search_path=public as $$
 declare v_staff public.staff;
@@ -171,7 +181,15 @@ begin
     and sp.portal_role='manager' and st.active;
   if not found then raise exception 'No tenés permiso para registrar pagos.'; end if;
   if p_paid<0 or p_final_total<0 or p_paid>p_final_total then raise exception 'Revisá los importes.'; end if;
-  update public.appointments set paid_amount=p_paid,final_total=p_final_total
+  if coalesce(p_extra_price,0)<0 or coalesce(p_extra_price,0)>p_final_total then
+    raise exception 'Revisá el precio del servicio adicional.';
+  end if;
+  update public.appointments
+  set paid_amount=p_paid, final_total=p_final_total,
+      items=case when nullif(trim(coalesce(p_extra_name,'')),'') is not null and coalesce(p_extra_price,0)>0
+        then coalesce(items,'[]'::jsonb) || jsonb_build_array(jsonb_build_object('service_id',null,'name',trim(p_extra_name),'price',p_extra_price,'duration',0))
+        else items end,
+      updated_by_staff=v_staff.id
   where id=p_id and staff_id=v_staff.id and created_by_staff=v_staff.id and status not in ('cancelled','no_show');
   if not found then raise exception 'No se encontró ese turno propio.'; end if;
   return true;
@@ -212,11 +230,11 @@ $$;
 
 revoke all on function public.staff_portal_data(text) from public;
 revoke all on function public.staff_save_appointment(text,uuid,text,text,date,int,jsonb,int,int,text) from public;
-revoke all on function public.staff_update_payment(text,uuid,int,int) from public;
+revoke all on function public.staff_update_payment(text,uuid,int,int,text,int) from public;
 revoke all on function public.staff_complete_appointment(text,uuid) from public;
 revoke all on function public.staff_cancel_appointment(text,uuid) from public;
 grant execute on function public.staff_portal_data(text) to anon,authenticated;
 grant execute on function public.staff_save_appointment(text,uuid,text,text,date,int,jsonb,int,int,text) to anon,authenticated;
-grant execute on function public.staff_update_payment(text,uuid,int,int) to anon,authenticated;
+grant execute on function public.staff_update_payment(text,uuid,int,int,text,int) to anon,authenticated;
 grant execute on function public.staff_complete_appointment(text,uuid) to anon,authenticated;
 grant execute on function public.staff_cancel_appointment(text,uuid) to anon,authenticated;

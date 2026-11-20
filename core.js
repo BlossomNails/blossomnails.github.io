@@ -454,14 +454,22 @@ function staffAgendaView(d, code, today) {
   const from = keyOf(new Date(Date.UTC(y, m - 3, 1))), to = addDays(today, 92);
   const { business_name, owner_name, whatsapp, hours, slot_step } = d.settings;
   return {
-    staff: { id: st.id, name: st.name, role: st.role, active: true, hours: st.hours, commission: p.commission ?? null },
+    staff: { id: st.id, name: st.name, role: st.role, active: true, hours: st.hours, commission: p.commission ?? null, portal_role: p.portal_role || "viewer" },
+    services: d.services.filter((s) => s.active && (!st.service_ids || st.service_ids.includes(s.id))),
+    clients: (p.portal_role === "manager" ? d.clients.filter((cl) => d.appointments.some((a) => a.staff_id === st.id && a.client_id === cl.id))
+      .map(cl => ({ ...cl, history: d.appointments.filter(a => a.staff_id === st.id && a.client_id === cl.id && a.kind !== "block")
+        .sort((a,b) => b.date.localeCompare(a.date) || b.start_min-a.start_min)
+        .map(a => ({ date:a.date, start_min:a.start_min, items:a.items, total:a.final_total ?? a.total, status:a.status })) })) : []),
     settings: { business_name, owner_name, whatsapp, hours, slot_step },
     exceptions: d.exceptions.filter((e) => e.date >= today && e.date <= to && (!e.staff_id || e.staff_id === st.id))
       .map(({ date, staff_id, blocks, note }) => ({ date, staff_id, blocks, note })),
     appointments: d.appointments.filter((a) => a.staff_id === st.id && a.date >= from && a.date <= to)
       .sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min)
-      .map(({ id, kind, staff_id, client_name, date, start_min, end_min, items, total, status, notes }) =>
-        ({ id, kind, staff_id, client_name, date, start_min, end_min, items, total, status, notes })),
+      .map((a) => ({ id: a.id, kind: a.kind, staff_id: a.staff_id, client_id: a.client_id, client_name: a.client_name,
+        client_phone: p.portal_role === "manager" ? a.client_phone : null, date: a.date, start_min: a.start_min, end_min: a.end_min,
+        items: a.items, total: a.total, final_total: p.portal_role === "manager" ? (a.final_total ?? a.total) : a.total,
+        paid_amount: p.portal_role === "manager" ? (a.paid_amount ?? 0) : null, deposit: p.portal_role === "manager" ? a.deposit : null,
+        status: a.status, notes: a.notes, created_by_staff: a.created_by_staff, completed_at: a.completed_at })),
   };
 }
 
@@ -516,6 +524,40 @@ const LocalDB = {
     this.write(d);
   },
   async staffAgenda(code) { return staffAgendaView(this.read(), code, nowInSalon().key); },
+  async staffSaveAppointment(code, input) {
+    const d = this.read(), p = d.staff_private.find((x) => x.code === cleanStaffCode(code));
+    if (!p || p.portal_role !== "manager") throw new Error("No tenés permiso para registrar turnos.");
+    const st = d.staff.find((x) => x.id === p.id && x.active);
+    if (!st) throw new Error("Tu acceso profesional no está activo.");
+    const phone = normPhone(input.client_phone), name = String(input.client_name || "").trim();
+    if (!name || phone.length < 8) throw new Error("Completá el nombre y WhatsApp de la clienta.");
+    const end = input.start_min + input.duration;
+    if (!isFree(d, st, input.date, input.start_min, end, input.id)) throw new Error("Ese horario no está disponible.");
+    let client = d.clients.find((x) => x.phone === phone);
+    if (!client) { client = { id: uid(), name, phone, notes: null, created_at: new Date().toISOString() }; d.clients.push(client); }
+    else client.name = name;
+    const row = { id: input.id || uid(), kind: "appointment", client_id: client.id, client_name: name, client_phone: phone,
+      staff_id: st.id, date: input.date, start_min: input.start_min, end_min: end, items: input.items, total: input.total,
+      final_total: input.total, paid_amount: 0, deposit: 0, status: "confirmed", notes: input.notes || null, source: "panel",
+      created_by_staff: st.id };
+    const i = d.appointments.findIndex((a) => a.id === row.id);
+    if (i >= 0) { const paid = d.appointments[i].paid_amount || 0; Object.assign(d.appointments[i], row, { paid_amount: paid, final_total: Math.max(row.total, paid) }); }
+    else d.appointments.push(row);
+    this.write(d); return row;
+  },
+  async staffUpdatePayment(code, id, paid, finalTotal) {
+    const d = this.read(), p = d.staff_private.find((x) => x.code === cleanStaffCode(code));
+    const a = d.appointments.find((x) => x.id === id && x.staff_id === p?.id && x.created_by_staff === p?.id);
+    if (!p || p.portal_role !== "manager" || !a) throw new Error("No se encontró ese turno propio.");
+    if (paid < 0 || finalTotal < 0 || paid > finalTotal) throw new Error("Revisá los importes.");
+    a.paid_amount = paid; a.final_total = finalTotal; this.write(d); return true;
+  },
+  async staffCancelAppointment(code, id) {
+    const d = this.read(), p = d.staff_private.find((x) => x.code === cleanStaffCode(code));
+    const a = d.appointments.find((x) => x.id === id && x.staff_id === p?.id && x.created_by_staff === p?.id);
+    if (!p || p.portal_role !== "manager" || !a) throw new Error("Solo podés cancelar los turnos que registraste vos.");
+    a.status = "cancelled"; this.write(d); return true;
+  },
   async saveSettings(settings) { const d = this.read(); d.settings = settings; this.write(d); return settings; },
   async bookGroup(req) {
     const d = this.read();
@@ -599,7 +641,19 @@ function SupabaseDB(url, key) {
       catch (e) { throw new Error(/clients_phone_key|duplicate/.test(e.message) && table === "clients" ? "Ya hay una clienta con ese número." : e.message); }
     },
     async remove(table, id) { must(await sb.from(table).delete().eq("id", id)); },
-    async staffAgenda(code) { return must(await sb.rpc("staff_agenda", { p_code: code })); },
+    async staffAgenda(code) { return must(await sb.rpc("staff_portal_data", { p_code: code })); },
+    async staffSaveAppointment(code, x) {
+      return must(await sb.rpc("staff_save_appointment", { p_code: code, p_id: x.id || null,
+        p_client_name: x.client_name, p_client_phone: x.client_phone, p_date: x.date,
+        p_start: x.start_min, p_items: x.items, p_total: x.total, p_duration: x.duration, p_notes: x.notes || null }));
+    },
+    async staffUpdatePayment(code, id, paid, finalTotal, deposit = 0, extraName = null, extraPrice = 0) {
+      return must(await sb.rpc("staff_update_payment", { p_code: code, p_id: id, p_paid: paid, p_final_total: finalTotal,
+        p_deposit: deposit, p_extra_name: extraName, p_extra_price: extraPrice }));
+    },
+    async staffCancelAppointment(code, id) {
+      return must(await sb.rpc("staff_cancel_appointment", { p_code: code, p_id: id }));
+    },
     async saveSettings(settings) { must(await sb.from("settings").upsert({ id: 1, data: settings })); return settings; },
     // A plain fetch with keepalive: it is sent immediately and finishes even if the phone jumps to WhatsApp.
     bookGroup(r) {

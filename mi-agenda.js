@@ -32,7 +32,7 @@ const ic = {
 
 /* ---------- money: her commission on each turn (or the turn's total when Mica didn't set one) ---------- */
 const pct = () => M.data.staff.commission;
-const earn = (a) => (pct() == null ? a.total || 0 : Math.round(((a.total || 0) * pct()) / 100));
+const earn = (a) => { const total = a.final_total ?? a.total ?? 0; return pct() == null ? total : Math.round((total * pct()) / 100); };
 const turns = (ym) => M.data.appointments.filter((a) => a.kind !== "block" && a.date.startsWith(ym));
 // a turn counts as earned once it's over and confirmed, the same rule as Mica's Control financiero
 const earned = (list, now) => list.filter((a) => a.status === "confirmed" && isPast(a, now));
@@ -146,7 +146,7 @@ function card(a, { date = false } = {}) {
   return `<${tag} class="appt s-${a.status}">${when}
     <span class="a-main"><b>${esc(a.client_name || "Clienta")}</b><small>${esc(itemsText(a)) || "Sin servicios"}</small>
       ${a.notes ? `<small class="a-note">${esc(a.notes)}</small>` : ""}</span>
-    <span class="a-side"><b>${gs(a.total)}</b>${pct() != null && live(a) ? `<small class="earn">+${gs(earn(a))}</small>` : ""}${badge}</span>
+    <span class="a-side"><b>${gs(a.final_total ?? a.total)}</b>${a.paid_amount != null ? `<small>Pagó ${gs(a.paid_amount)} · Debe ${gs(Math.max(0,(a.final_total ?? a.total)-a.paid_amount))}</small>` : ""}${pct() != null && live(a) ? `<small class="earn">+${gs(earn(a))}</small>` : ""}${badge}${a.created_by_staff === M.data.staff.id ? `<small>Registrado por vos</small><button type="button" class="link-plain" data-act="edit-own" data-id="${a.id}">Editar</button> <button type="button" class="link-plain" data-act="pay-own" data-id="${a.id}">Pagos</button> <button type="button" class="link-plain" data-act="cancel-own" data-id="${a.id}">Cancelar</button>` : ""}</span>
   </${close}>`;
 }
 

@@ -20,7 +20,7 @@ const multi = () => activeStaff().length > 1;
 const staffById = (id) => D().staff.find((s) => s.id === id);
 // her code for mi-agenda.html and her commission, only visible here
 const privOf = (id) => D().staff_private.find((p) => p.id === id) || { id, code: null, commission: null };
-const commissionOf = (a) => { const c = privOf(a.staff_id).commission; return c == null ? 0 : Math.round(((a.total || 0) * c) / 100); };
+const commissionOf = (a) => { const c = privOf(a.staff_id).commission; const total = a.final_total ?? a.total ?? 0; return c == null ? 0 : Math.round((total * c) / 100); };
 const clientById = (id) => D().clients.find((c) => c.id === id);
 const svcById = (id) => D().services.find((s) => s.id === id);
 const live = (a) => !OFF.includes(a.status);
@@ -228,13 +228,14 @@ function apptCard(a, { date = false } = {}) {
   const isNew = a.source === "web" && Date.now() - Date.parse(a.created_at) < 864e5;
   const badge = (a.status !== "confirmed" ? `<span class="badge b-${a.status}">${STATUS[a.status]}</span>` : isNew ? '<span class="badge b-new">Nueva</span>' : "")
     + (a.deposit > 0 ? '<span class="badge b-dep">Seña ✓</span>' : depositOpen(a) && !isPast(a) ? '<span class="badge b-dep-no">Sin seña</span>' : "")
-    + (bdayGift(a) ? '<span class="badge" title="Regalo de cumpleaños">🎂</span>' : "");
+    + (bdayGift(a) ? '<span class="badge" title="Regalo de cumpleaños">🎂</span>' : "")
+    + (a.created_by_staff ? `<span class="badge">Registrado por ${esc(staffById(a.created_by_staff)?.name || "profesional")}</span>` : "");
   return `<button type="button" class="appt s-${a.status}${block ? " is-block" : ""}" data-act="appt-open" data-id="${a.id}">
     <span class="a-time">${date ? `<small class="a-date">${relDay(a.date)}</small>` : ""}<b>${hhmm(a.start_min)}</b><small>${hhmm(a.end_min)}</small></span>
     <span class="a-main"><b>${block ? ic("lock") : ""}${esc(apptTitle(a))}</b>
       <small>${block ? "Horario bloqueado" : esc(itemsText(a)) || "Sin servicios"}</small>
       ${multi() && st ? `<small class="a-staff">con ${esc(st.name)}</small>` : ""}</span>
-    <span class="a-side">${block ? "" : `<b>${gs(a.total)}</b>`}${badge}</span>
+    <span class="a-side">${block ? "" : `<b>${gs(a.final_total ?? a.total)}</b>${a.paid_amount != null ? `<small>Cobrado ${gs(a.paid_amount)} · Pendiente ${gs(Math.max(0,(a.final_total ?? a.total)-a.paid_amount))}</small>` : ""}`}${badge}</span>
   </button>`;
 }
 const empty = (msg) => `<div class="empty"><svg class="sparkle"><use href="#i-sparkle"/></svg><p>${msg}</p></div>`;
@@ -271,11 +272,11 @@ VIEWS.inicio = () => {
     </div>
     <div class="stats">
       <a class="stat" href="#/agenda" data-act="agenda-today">${ic("calendar")}<b>${today.length}</b><small>Citas hoy</small></a>
-      <div class="stat">${ic("chart")}<b>${gs(sum(today.filter((a) => a.status === "confirmed"), (a) => a.total))}</b><small>Ingresos de hoy</small></div>
+      <div class="stat">${ic("chart")}<b>${gs(sum(today.filter((a) => a.status === "confirmed"), (a) => a.final_total ?? a.total))}</b><small>Ingresos de hoy</small></div>
     </div>
     ${orphan.length ? `<a class="row-link setup warnlink" href="#/equipo">${ic("user")}<span><b>${orphan.length} servicio${orphan.length === 1 ? "" : "s"} no se puede${orphan.length === 1 ? "" : "n"} reservar</b><small>No los tiene marcados ninguna profesional. Tocá para asignarlos.</small></span>${ic("right")}</a>` : ""}
     ${setup.length ? `<a class="row-link setup" href="#/ajustes">${ic("sliders")}<span><b>Para terminar de configurar</b><small>Cargá ${setup.join(" y ")} en Ajustes.</small></span>${ic("right")}</a>` : ""}
-    <a class="row-link" href="#/finanzas">${ic("chart")}<span><b>Control financiero</b><small>Este mes: ${gs(sum(month, (a) => a.total))} · ${month.length} cita${month.length === 1 ? "" : "s"}</small></span>${ic("right")}</a>
+    <a class="row-link" href="#/finanzas">${ic("chart")}<span><b>Control financiero</b><small>Este mes: ${gs(sum(month, (a) => a.final_total ?? a.total))} · ${month.length} cita${month.length === 1 ? "" : "s"}</small></span>${ic("right")}</a>
     ${pending.length ? section(`Por confirmar <span class="count">${pending.length}</span>`, `<div class="list">${pending.map((a) => apptCard(a, { date: true })).join("")}</div>`) : ""}
     ${remind.length ? section(`Recordatorios para mañana <span class="count">${remind.filter((a) => !a.reminded_at).length || "✓"}</span>`,
       `<p class="hint">Un toque y le llega el recordatorio por WhatsApp.</p><div class="list">${remind.map(remindRow).join("")}</div>`) : ""}
@@ -360,7 +361,7 @@ function agendaList() {
   const days = [...new Set(items.map((a) => a.date))];
   const body = days.length ? days.map((k) => {
     const list = items.filter((a) => a.date === k);
-    const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.total);
+    const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.final_total ?? a.total);
     return `<h3 class="day-h"><span>${relDay(k) === DAYS_SHORT[dowOf(k)] + " " + shortDate(k) ? longDate(k) : `${relDay(k)} · ${longDate(k)}`}</span><small>${money ? gs(money) : ""}</small></h3>
       <div class="list">${list.map((a) => apptCard(a)).join("")}</div>`;
   }).join("") : empty(ag.filter === "hoy" ? "No hay citas para hoy." : "Sin citas.");
@@ -375,7 +376,7 @@ function agendaDay() {
     return `<button type="button" class="pill pill-day${d === now.key ? " is-today" : ""}" data-act="agenda-day" data-v="${d}" aria-pressed="${d === k}">${DAYS_SHORT[dowOf(d)]}<small>${+d.slice(8)}</small>${n ? `<i class="dot" aria-label="${n} citas"></i>` : ""}</button>`;
   }).join("");
   const list = D().appointments.filter((a) => a.date === k && (!ag.staff || a.staff_id === ag.staff));
-  const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.total);
+  const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.final_total ?? a.total);
   return `
     <div class="daybar">
       <button class="icon-btn sm" type="button" data-act="agenda-shift" data-v="-7" aria-label="Semana anterior">${ic("left")}</button>
@@ -509,7 +510,7 @@ function openDetail(id) {
           <b>${hhmm(x.start_min)}–${hhmm(x.end_min)}</b><span>${esc(firstName(staffById(x.staff_id)?.name) || "—")} · ${esc(itemsText(x))}</span></button>`).join("")}</div>` : ""}
       ${block ? (a.notes ? `<p>${esc(a.notes)}</p>` : "") : `
         <ul class="det-items">${a.items.map((i) => `<li><span>${esc(i.name)}</span><small>${i.duration ? dur(i.duration) : ""}</small><b>${i.price != null ? gs(i.price) : "—"}</b></li>`).join("")}
-          <li class="tot"><span>Total</span><small></small><b>${gs(a.total)}</b></li></ul>
+          <li class="tot"><span>Total</span><small></small><b>${gs(a.final_total ?? a.total)}</b></li></ul>
         ${a.client_phone ? `<p class="det-phone">${ic("user")}${fmtPhone(a.client_phone)}</p>` : ""}
         ${a.notes ? `<p class="det-notes">${esc(a.notes)}</p>` : ""}
         <div class="dep">
@@ -1243,14 +1244,17 @@ async function saveStaff(form) {
 // her personal link to mi-agenda.html, with the code after "#"
 const agendaLink = (code) => `${bookingUrl()}mi-agenda.html#${code}`;
 function accessBlock(s) {
-  const { code } = privOf(s.id);
+  const { code, portal_role = "viewer" } = privOf(s.id);
   const first = esc(firstName(s.name));
+  const roleControl = `<p class="hint">Permiso actual: <b>${portal_role === "manager" ? "Gestión de turnos y clientas" : "Solo lectura"}</b></p><button class="btn btn-ghost sm" type="button" data-act="staff-portal-role" data-id="${s.id}">${portal_role === "manager" ? "Quitar permisos de gestión" : "Habilitar gestión de turnos"}</button>`;
   if (!code) {
-    return `<p class="hint">Con su link, ${first} ve en el celular sus turnos, sus horarios libres y cuánto lleva ganado. No puede cambiar nada ni ve los teléfonos de las clientas.</p>
+    return `<p class="hint">Con su link, ${first} ve en el celular sus turnos. Los permisos de gestión se habilitan por separado.</p>
+      ${roleControl}
       <button class="btn btn-ghost" type="button" data-act="staff-access" data-id="${s.id}">${ic("lock")}Crear su acceso</button>`;
   }
   const msg = `¡Hola ${firstName(s.name)}! 🌸 Este es tu acceso a tu agenda de Blossom: ${agendaLink(code)}\n\nAhí ves tus turnos, tus horarios libres y lo que vas ganando. Guardalo en la pantalla de inicio del celu para tenerlo a mano. Si te pide código: ${code}`;
   return `<div class="access">
+      ${roleControl}
       <p class="hint">${first} entra con este link${s.active ? "" : " (mientras esté inactiva no funciona)"}. Código: <b>${code}</b></p>
       <code>${esc(agendaLink(code))}</code>
       <div class="row">
@@ -1274,7 +1278,7 @@ VIEWS.finanzas = () => {
   const withDep = appts.filter((a) => a.deposit > 0);
   const kept = withDep.filter((a) => OFF.includes(a.status));
   const depAhead = withDep.filter((a) => live(a) && !isPast(a, now));
-  const income = sum(done, (a) => a.total) + sum(kept, (a) => a.deposit);
+  const income = sum(done, (a) => a.final_total ?? a.total) + sum(kept, (a) => a.deposit);
   // gastos of the month and what's left after them
   const exp = D().expenses.filter((x) => x.date.startsWith(A.month)).sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || "").localeCompare(a.created_at || ""));
   const spent = sum(exp, (x) => x.amount);
@@ -1289,12 +1293,12 @@ VIEWS.finanzas = () => {
     return [...map.values()].sort((a, b) => b.total - a.total || b.n - a.n);
   };
   const bySvc = tally((a) => a.items.map((i) => [i.service_id || i.name, i.name, i.price]));
-  const byStaff = tally((a) => [[a.staff_id || "-", staffById(a.staff_id)?.name || "Sin asignar", a.total]]);
+  const byStaff = tally((a) => [[a.staff_id || "-", staffById(a.staff_id)?.name || "Sin asignar", a.final_total ?? a.total]]);
   // what each professional earned with her commission, on the same turns
   const owed = [...D().staff].sort(bySort).map((st) => ({ st, c: privOf(st.id).commission, list: done.filter((a) => a.staff_id === st.id) }))
     .filter((x) => x.c != null && x.list.length)
     .map(({ st, c, list }) => ({ label: `${st.name} · ${c}%`, n: list.length, total: sum(list, commissionOf) }));
-  const byDay = tally((a) => [[a.date, a.date, a.total]]).sort((a, b) => a.label.localeCompare(b.label));
+  const byDay = tally((a) => [[a.date, a.date, a.final_total ?? a.total]]).sort((a, b) => a.label.localeCompare(b.label));
   const max = Math.max(1, ...byDay.map((d) => d.total));
   const table = (rows) => `<div class="tbl">${rows.map((r) => `<div><span>${esc(r.label)}</span><small>${r.n}</small><b>${gs(r.total)}</b></div>`).join("")}</div>`;
   return `
@@ -1311,7 +1315,7 @@ VIEWS.finanzas = () => {
     </div>
     <div class="stats">
       <div class="stat"><small>Señas cobradas</small><b>${gs(sum(withDep, (a) => a.deposit))}</b><small>${gs(sum(depAhead, (a) => a.deposit))} de turnos que vienen</small></div>
-      <div class="stat"><small>Agendado</small><b>${gs(sum(ahead, (a) => a.total))}</b><small>${ahead.length} por venir</small></div>
+      <div class="stat"><small>Agendado</small><b>${gs(sum(ahead, (a) => a.final_total ?? a.total))}</b><small>${ahead.length} por venir</small></div>
       <div class="stat"><small>Ticket promedio</small><b>${gs(done.length ? income / done.length : 0)}</b><small>${people} clienta${people === 1 ? "" : "s"}</small></div>
       <div class="stat"><small>Canceladas · no vino</small><b>${appts.filter((a) => a.status === "cancelled").length} · ${appts.filter((a) => a.status === "no_show").length}</b><small>en el mes</small></div>
     </div>
@@ -1634,6 +1638,13 @@ const ACT = {
     const n = D().appointments.filter((a) => a.staff_id === s.id && live(a) && !isPast(a)).length;
     if (!confirm(`¿Eliminar a ${s.name}?${n ? ` Tiene ${n} cita${n === 1 ? "" : "s"} próximas que van a quedar sin profesional.` : ""} Si solo deja de atender por un tiempo, mejor desactivala.`)) return;
     run(async () => { await remove("staff", s.id); closeDlg(); render(); }, "Eliminada");
+  },
+  "staff-portal-role": (el) => {
+    const s = staffById(el.dataset.id), p = privOf(s.id);
+    const next = p.portal_role === "manager" ? "viewer" : "manager";
+    if (next === "manager" && !confirm(`¿Habilitar a ${firstName(s.name)} para registrar y administrar sus propios turnos y consultar el historial de sus clientas?`)) return;
+    run(async () => { await save("staff_private", { ...p, portal_role: next }); $("#st-access").innerHTML = accessBlock(s); render(); },
+      next === "manager" ? "Permisos de gestión habilitados ✓" : "Permisos de gestión quitados");
   },
   // her link to mi-agenda.html: a new code makes the old link stop working
   "staff-access": (el) => {

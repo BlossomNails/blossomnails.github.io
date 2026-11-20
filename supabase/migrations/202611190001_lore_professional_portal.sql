@@ -171,7 +171,7 @@ begin
 end;
 $$;
 
-create or replace function public.staff_update_payment(p_code text,p_id uuid,p_paid int,p_final_total int,p_extra_name text default null,p_extra_price int default 0)
+create or replace function public.staff_update_payment(p_code text,p_id uuid,p_paid int,p_final_total int,p_deposit int default 0,p_extra_name text default null,p_extra_price int default 0)
 returns boolean
 language plpgsql security definer set search_path=public as $$
 declare v_staff public.staff;
@@ -180,12 +180,12 @@ begin
   where sp.code=upper(regexp_replace(coalesce(p_code,''),'[^A-Z0-9]','','g'))
     and sp.portal_role='manager' and st.active;
   if not found then raise exception 'No tenés permiso para registrar pagos.'; end if;
-  if p_paid<0 or p_final_total<0 or p_paid>p_final_total then raise exception 'Revisá los importes.'; end if;
+  if p_paid<0 or p_final_total<0 or p_paid>p_final_total or coalesce(p_deposit,0)<0 or coalesce(p_deposit,0)>p_paid then raise exception 'Revisá los importes y la seña.'; end if;
   if coalesce(p_extra_price,0)<0 or coalesce(p_extra_price,0)>p_final_total then
     raise exception 'Revisá el precio del servicio adicional.';
   end if;
   update public.appointments
-  set paid_amount=p_paid, final_total=p_final_total,
+  set paid_amount=p_paid, deposit=nullif(p_deposit,0), final_total=p_final_total,
       items=case when nullif(trim(coalesce(p_extra_name,'')),'') is not null and coalesce(p_extra_price,0)>0
         then coalesce(items,'[]'::jsonb) || jsonb_build_array(jsonb_build_object('service_id',null,'name',trim(p_extra_name),'price',p_extra_price,'duration',0))
         else items end,
@@ -230,11 +230,11 @@ $$;
 
 revoke all on function public.staff_portal_data(text) from public;
 revoke all on function public.staff_save_appointment(text,uuid,text,text,date,int,jsonb,int,int,text) from public;
-revoke all on function public.staff_update_payment(text,uuid,int,int,text,int) from public;
+revoke all on function public.staff_update_payment(text,uuid,int,int,int,text,int) from public;
 revoke all on function public.staff_complete_appointment(text,uuid) from public;
 revoke all on function public.staff_cancel_appointment(text,uuid) from public;
 grant execute on function public.staff_portal_data(text) to anon,authenticated;
 grant execute on function public.staff_save_appointment(text,uuid,text,text,date,int,jsonb,int,int,text) to anon,authenticated;
-grant execute on function public.staff_update_payment(text,uuid,int,int,text,int) to anon,authenticated;
+grant execute on function public.staff_update_payment(text,uuid,int,int,int,text,int) to anon,authenticated;
 grant execute on function public.staff_complete_appointment(text,uuid) to anon,authenticated;
 grant execute on function public.staff_cancel_appointment(text,uuid) to anon,authenticated;

@@ -93,9 +93,11 @@
       if (!Number.isFinite(extraPrice) || extraPrice < 0) return;
       const total = Number(prompt("Total final de la cita (Gs.)", (a.final_total ?? a.total) + extraPrice));
       if (!Number.isFinite(total) || total < 0) return;
-      const paid = Number(prompt("Total acumulado cobrado, incluyendo la seña (Gs.)", a.paid_amount || a.deposit || 0));
+      const deposit = Number(prompt("Seña recibida (Gs.)", a.deposit || 0));
+      if (!Number.isFinite(deposit) || deposit < 0) return;
+      const paid = Number(prompt("Total acumulado cobrado, incluyendo la seña (Gs.)", a.paid_amount || deposit || 0));
       if (!Number.isFinite(paid) || paid < 0) return;
-      try { await M.db.staffUpdatePayment(M.code, a.id, paid, total, extraName || null, extraPrice); await load(); render(); toast("Pagos actualizados ✓"); }
+      try { await M.db.staffUpdatePayment(M.code, a.id, paid, total, deposit, extraName || null, extraPrice); await load(); render(); toast("Pagos actualizados ✓"); }
       catch (err) { toast(err.message, 4000); }
     }
     if (b.dataset.act === "cancel-own") {

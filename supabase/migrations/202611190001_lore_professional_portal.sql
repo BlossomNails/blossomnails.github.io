@@ -18,11 +18,11 @@ language sql
 stable
 security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
   select exists (
     select 1 from public.admins where user_id = auth.uid()
   );
-$;
+$$;
 revoke all on function public.is_admin() from public;
 grant execute on function public.is_admin() to anon, authenticated;
 
@@ -45,7 +45,7 @@ set paid_amount = greatest(coalesce(paid_amount, 0), coalesce(deposit, 0));
 
 create or replace function public.staff_portal_data(p_code text)
 returns jsonb
-language plpgsql stable security definer set search_path = pg_catalog, public, pg_temp as $
+language plpgsql stable security definer set search_path = pg_catalog, public, pg_temp as $$
 declare
   v_staff public.staff;
   v_private public.staff_private;
@@ -106,7 +106,7 @@ create or replace function public.staff_save_appointment(
   p_code text, p_id uuid, p_client_name text, p_client_phone text,
   p_date date, p_start int, p_items jsonb, p_total int, p_duration int, p_notes text default null
 ) returns jsonb
-language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $
+language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $$
 declare
   v_private public.staff_private;
   v_staff public.staff;
@@ -187,7 +187,7 @@ $$;
 
 create or replace function public.staff_update_payment(p_code text,p_id uuid,p_paid int,p_final_total int,p_deposit int default 0,p_extra_name text default null,p_extra_price int default 0)
 returns boolean
-language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $
+language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $$
 declare v_staff public.staff;
 begin
   select st.* into v_staff from public.staff_private sp join public.staff st on st.id=sp.id
@@ -212,7 +212,7 @@ $$;
 
 create or replace function public.staff_complete_appointment(p_code text,p_id uuid)
 returns boolean
-language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $
+language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $$
 declare v_staff public.staff;
 begin
   select st.* into v_staff from public.staff_private sp join public.staff st on st.id=sp.id
@@ -228,7 +228,7 @@ $$;
 
 create or replace function public.staff_cancel_appointment(p_code text,p_id uuid)
 returns boolean
-language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $
+language plpgsql security definer set search_path=pg_catalog, public, pg_temp as $$
 declare v_staff public.staff;
 begin
   select st.* into v_staff from public.staff_private sp join public.staff st on st.id=sp.id

@@ -376,7 +376,7 @@ function agendaDay() {
     return `<button type="button" class="pill pill-day${d === now.key ? " is-today" : ""}" data-act="agenda-day" data-v="${d}" aria-pressed="${d === k}">${DAYS_SHORT[dowOf(d)]}<small>${+d.slice(8)}</small>${n ? `<i class="dot" aria-label="${n} citas"></i>` : ""}</button>`;
   }).join("");
   const list = D().appointments.filter((a) => a.date === k && (!ag.staff || a.staff_id === ag.staff));
-  const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.total);
+  const money = sum(list.filter((a) => a.kind !== "block" && live(a)), (a) => a.final_total ?? a.total);
   return `
     <div class="daybar">
       <button class="icon-btn sm" type="button" data-act="agenda-shift" data-v="-7" aria-label="Semana anterior">${ic("left")}</button>

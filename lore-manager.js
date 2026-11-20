@@ -88,11 +88,14 @@
       f.scrollIntoView({ behavior: motion(), block: "center" });
     }
     if (b.dataset.act === "pay-own") {
-      const total = Number(prompt("Total final del servicio (Gs.)", a.final_total ?? a.total));
+      const extraName = String(prompt("¿Agregaste otro servicio? Escribí su nombre o dejá vacío.", "") || "").trim();
+      const extraPrice = extraName ? Number(prompt("Precio del servicio adicional (Gs.)", "0")) : 0;
+      if (!Number.isFinite(extraPrice) || extraPrice < 0) return;
+      const total = Number(prompt("Total final de la cita (Gs.)", (a.final_total ?? a.total) + extraPrice));
       if (!Number.isFinite(total) || total < 0) return;
       const paid = Number(prompt("Total acumulado cobrado, incluyendo la seña (Gs.)", a.paid_amount || a.deposit || 0));
       if (!Number.isFinite(paid) || paid < 0) return;
-      try { await M.db.staffUpdatePayment(M.code, a.id, paid, total); await load(); render(); toast("Pagos actualizados ✓"); }
+      try { await M.db.staffUpdatePayment(M.code, a.id, paid, total, extraName || null, extraPrice); await load(); render(); toast("Pagos actualizados ✓"); }
       catch (err) { toast(err.message, 4000); }
     }
     if (b.dataset.act === "cancel-own") {
